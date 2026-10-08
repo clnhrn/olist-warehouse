@@ -99,5 +99,10 @@ def bronze_key(table: str, load_date: date) -> str:
     return f"bronze/{table}/{_partition(load_date)}/data.parquet"
 
 
+def quarantine_key(table: str, load_date: date) -> str:
+    """Hive-style keys (table_name=, load_date=), so BigQuery reads them as partitions."""
+    return f"quarantine/table_name={table}/{_partition(load_date)}/data.parquet"
+
+
 def manifest_key(load_date: date) -> str:
     return f"_manifests/{_partition(load_date)}.json"

@@ -146,11 +146,13 @@ def main(argv: list[str] | None = None) -> int:
                 }
             for load_date, result in results.items():
                 for table, rows in sorted(result.rows.items()):
+                    quarantined = result.quarantined.get(table, 0)
                     logger.info(
-                        "%s %-30s %10d rows%s",
+                        "%s %-30s %10d rows%s%s",
                         load_date,
                         table,
                         rows,
+                        f", {quarantined} quarantined" if quarantined else "",
                         " (skipped)" if result.skipped else "",
                     )
     except subprocess.CalledProcessError as exc:
