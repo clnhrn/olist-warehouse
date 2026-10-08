@@ -207,3 +207,23 @@ def test_run_log_records_failure_without_landing(lake, two_tables, tmp_path):
     with pytest.raises(FileNotFoundError):
         ingest(lake, None, two_tables, LOAD_DATE, run_log=run_log)
     assert [(r["object"], r["status"]) for r in _run_rows(run_log)] == [("*", "failed")]
+
+
+def test_skipped_date_gets_empty_quarantine_when_missing(lake, two_tables, source_dir):
+    """A date loaded before quarantine existed has no quarantine file; a skip adds an empty one."""
+    land(lake, two_tables.for_date(LOAD_DATE), source_dir, LOAD_DATE)
+    ingest(lake, None, two_tables, LOAD_DATE)
+    sellers_key = quarantine_key("sellers", LOAD_DATE)
+    lake._path(sellers_key).unlink()
+
+    result = ingest(lake, None, two_tables, LOAD_DATE)
+
+    assert result.skipped
+    assert _quarantine(lake, "sellers").is_empty()
+    assert set(_quarantine(lake, "sellers").columns) == {
+        "source_row",
+        "failed_checks",
+        "raw_record",
+        "_loaded_at",
+        "_source_file",
+    }
