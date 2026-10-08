@@ -1,0 +1,371 @@
+version: 2
+
+# Every foreign key is non-null: a missing reference points to the
+# dimension's unknown member ('-1', or -1 for dates).
+
+models:
+  - name: fact_order_items
+    description: >
+      One row per order item, key (order_id, order_item_id). An order that
+      bought several units of a product has several rows, so item count is
+      COUNT(*). Revenue is SUM(price); orders with no items have no rows here.
+      Partitioned by purchase month, clustered by seller and product.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, order_item_id]
+      - dbt_utils.equal_rowcount:
+          arguments:
+            compare_model: ref('silver_order_items')
+    columns:
+      - name: order_id
+        description: The order (degenerate dimension). Part of the primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+      - name: order_item_id
+        description: Item number within the order, from 1. Part of the primary key.
+        data_type: int64
+        constraints: [{type: not_null}]
+      - name: purchase_date_key
+        description: dim_date key of the order's purchase date.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: shipping_limit_date_key
+        description: dim_date key of the seller's shipping deadline.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: purchased_at
+        description: When the order was placed. The partitioning column.
+        data_type: timestamp
+        constraints: [{type: not_null}]
+      - name: customer_key
+        description: dim_customer key of the person who placed the order.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: customer_location_key
+        description: dim_location key of the customer's address on this order.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_location'), field: location_key}
+      - name: product_key
+        description: dim_product key.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_product'), field: product_key}
+      - name: seller_key
+        description: dim_seller key of the seller version valid at purchase time.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_seller'), field: seller_key}
+      - name: seller_location_key
+        description: dim_location key of that seller version's address.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_location'), field: location_key}
+      - name: order_status
+        description: The order's current status, so revenue can exclude canceled orders.
+        data_type: string
+        data_tests: [not_null]
+      - name: price
+        description: Item price in BRL. Item revenue.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+      - name: freight_value
+        description: Freight charged for this item in BRL.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+      - name: item_total
+        description: price + freight_value.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+
+  - name: fact_orders
+    description: >
+      Accumulating snapshot, one row per order, including the orders with no
+      items (needed for cancellation rates). Milestones fill in as the order
+      moves forward; delivery measures live here so they are never repeated
+      per item. Partitioned by purchase month, clustered by customer and status.
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          arguments:
+            compare_model: ref('silver_orders')
+    columns:
+      - name: order_id
+        description: The order (degenerate dimension). Primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: customer_key
+        description: dim_customer key of the person who placed the order.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: customer_location_key
+        description: dim_location key of the customer's address on this order.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_location'), field: location_key}
+      - name: purchase_date_key
+        description: dim_date key of the purchase date.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: approved_date_key
+        description: dim_date key of the payment approval date, -1 if not approved.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: shipped_date_key
+        description: dim_date key of the hand-off to the carrier, -1 if not shipped.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: delivered_date_key
+        description: dim_date key of the delivery date, -1 if not delivered.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: estimated_delivery_date_key
+        description: dim_date key of the delivery date promised at purchase.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: purchased_at
+        description: When the order was placed (Brazil local time). The partitioning column.
+        data_type: timestamp
+        constraints: [{type: not_null}]
+      - name: approved_at
+        description: When payment was approved. Null if not yet approved.
+        data_type: timestamp
+      - name: shipped_at
+        description: When the order was handed to the carrier. Null if not shipped.
+        data_type: timestamp
+      - name: delivered_at
+        description: When the customer received the order. Null if not delivered.
+        data_type: timestamp
+      - name: estimated_delivery_at
+        description: Delivery date promised at purchase (midnight).
+        data_type: timestamp
+      - name: order_status
+        description: Current status.
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [approved, canceled, created, delivered, invoiced,
+                         processing, shipped, unavailable]
+      - name: item_count
+        description: Number of items (units) in the order. 0 for orders with no items.
+        data_type: int64
+        data_tests: [not_null]
+      - name: seller_count
+        description: Number of distinct sellers in the order.
+        data_type: int64
+        data_tests: [not_null]
+      - name: items_price_total
+        description: Sum of item prices in BRL. 0 for orders with no items.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+      - name: freight_total
+        description: Sum of item freight in BRL.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+      - name: order_total
+        description: items_price_total + freight_total.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+      - name: payment_total
+        description: >
+          Sum of payments in BRL. Can differ from order_total (installment
+          interest, vouchers); 0 for the one order with no payment.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+      - name: payment_count
+        description: Number of payment records.
+        data_type: int64
+        data_tests: [not_null]
+      - name: days_to_approve
+        description: Days from purchase to approval (fractional). Null if not approved.
+        data_type: numeric(10, 2)
+      - name: days_to_ship
+        description: Days from purchase to the carrier hand-off. Null if not shipped.
+        data_type: numeric(10, 2)
+      - name: days_to_deliver
+        description: Days from purchase to delivery. Null if not delivered.
+        data_type: numeric(10, 2)
+      - name: delivery_delay_days
+        description: >
+          delivered_at - estimated_delivery_at in days; positive means after the
+          estimate's midnight. Values between 0 and 1 are on the promised day,
+          which is not late. Null if not delivered.
+        data_type: numeric(10, 2)
+      - name: is_delivered
+        description: True when order_status is delivered.
+        data_type: bool
+        data_tests: [not_null]
+      - name: is_late
+        description: >
+          True when delivered on a later day than the estimate. Null when there
+          is no delivery date.
+        data_type: bool
+      - name: is_canceled
+        description: True when order_status is canceled.
+        data_type: bool
+        data_tests: [not_null]
+      - name: has_status_date_mismatch
+        description: >
+          Delivered without a delivery date, or a delivery date without
+          delivered status (8 and 6 orders in the source).
+        data_type: bool
+        data_tests: [not_null]
+
+  - name: fact_payments
+    description: >
+      One row per payment record, key (order_id, payment_sequential). Payments
+      are never allocated to items; they can differ from the order total.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequential]
+      - dbt_utils.equal_rowcount:
+          arguments:
+            compare_model: ref('silver_order_payments')
+    columns:
+      - name: order_id
+        description: The order (degenerate dimension). Part of the primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+      - name: payment_sequential
+        description: Payment number within the order. Part of the primary key.
+        data_type: int64
+        constraints: [{type: not_null}]
+      - name: purchase_date_key
+        description: dim_date key of the order's purchase date.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: customer_key
+        description: dim_customer key of the person who placed the order.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: payment_type
+        description: Payment method. not_defined appears on 3 records.
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [credit_card, boleto, voucher, debit_card, not_defined]
+      - name: payment_installments
+        description: Number of installments. 2 records have 0.
+        data_type: int64
+      - name: payment_value
+        description: Amount paid in BRL.
+        data_type: numeric(18, 2)
+        data_tests: [not_null]
+
+  - name: fact_reviews
+    description: >
+      One row per review per order, key (review_id, order_id). A review_id can
+      cover several orders, so count reviews with COUNT(DISTINCT review_id).
+      Average score is averaged over rows (per order).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [review_id, order_id]
+      - dbt_utils.equal_rowcount:
+          arguments:
+            compare_model: ref('silver_order_reviews')
+    columns:
+      - name: review_id
+        description: The review (degenerate dimension). Part of the primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+      - name: order_id
+        description: The reviewed order (degenerate dimension). Part of the primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+      - name: customer_key
+        description: dim_customer key of the person who placed the order.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: review_created_date_key
+        description: dim_date key of the day the review survey was sent.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: review_answered_date_key
+        description: dim_date key of the day the customer answered.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: review_score
+        description: Score from 1 to 5.
+        data_type: int64
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+      - name: answer_hours
+        description: Hours from the survey being sent to the answer.
+        data_type: numeric(10, 2)
+      - name: has_title
+        description: True when the review has a title. Most reviews have neither title nor message.
+        data_type: bool
+        data_tests: [not_null]
+      - name: has_message
+        description: True when the review has a message.
+        data_type: bool
+        data_tests: [not_null]
+      - name: review_comment_title
+        description: Review title, free text in Portuguese. Null if blank.
+        data_type: string
+      - name: review_comment_message
+        description: Review message, free text in Portuguese. Null if blank.
+        data_type: string
