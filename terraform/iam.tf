@@ -1,10 +1,18 @@
-# sa-ingestion-prod: runs the Cloud Run Job. Writes the prod bucket and prod bronze only.
+# sa-ingestion-prod: runs the ingestion job. Writes the prod bucket and prod bronze only.
+# sa-dbt-prod: runs the dbt job. Reads prod bronze, writes prod silver and gold.
+# sa-orchestrator-prod: the workflow and its schedule (orchestration.tf).
 # sa-dev: used by local sessions (impersonation). Writes the dev bucket and dev_* datasets only.
 # The CI service account and Workload Identity Federation are added in Phase 8.
 
 resource "google_service_account" "ingestion_prod" {
   account_id   = "sa-ingestion-prod"
   display_name = "Ingestion job (prod)"
+  depends_on   = [google_project_service.apis]
+}
+
+resource "google_service_account" "dbt_prod" {
+  account_id   = "sa-dbt-prod"
+  display_name = "dbt job (prod)"
   depends_on   = [google_project_service.apis]
 }
 
@@ -19,6 +27,7 @@ locals {
 
   job_users = {
     ingestion_prod = google_service_account.ingestion_prod.member
+    dbt_prod       = google_service_account.dbt_prod.member
     dev            = google_service_account.dev.member
   }
 }
@@ -41,6 +50,20 @@ resource "google_bigquery_dataset_iam_member" "ingestion_prod_bronze" {
   dataset_id = google_bigquery_dataset.layer["bronze"].dataset_id
   role       = "roles/bigquery.dataEditor"
   member     = google_service_account.ingestion_prod.member
+}
+
+resource "google_bigquery_dataset_iam_member" "dbt_prod_reads_bronze" {
+  dataset_id = google_bigquery_dataset.layer["bronze"].dataset_id
+  role       = "roles/bigquery.dataViewer"
+  member     = google_service_account.dbt_prod.member
+}
+
+resource "google_bigquery_dataset_iam_member" "dbt_prod_writes" {
+  for_each = toset(["silver", "gold"])
+
+  dataset_id = google_bigquery_dataset.layer[each.value].dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = google_service_account.dbt_prod.member
 }
 
 resource "google_storage_bucket_iam_member" "dev_lake" {

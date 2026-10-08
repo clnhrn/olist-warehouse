@@ -17,3 +17,8 @@ output "image_repository" {
   description = "Docker repository for pipeline images."
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.olist.repository_id}"
 }
+
+output "pipeline_workflow" {
+  description = "Run the pipeline by hand: gcloud workflows run <name> --location=<region>."
+  value       = local.pipeline_ready ? google_workflows_workflow.pipeline[0].name : null
+}
