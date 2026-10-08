@@ -128,11 +128,11 @@ Columns: `product_key`, `product_id`, `category_pt`, `category_en`, `name_length
 
 ### dim_seller (SCD2)
 
-**Grain:** one row per seller per version, plus unknown. 3,095 sellers, one version each until Phase 6.
+**Grain:** one row per seller per version, plus unknown. 3,095 sellers; after batch 3, 3,115 versions (20 sellers moved on 2018-01-01).
 
 Columns: `seller_key` (hash of `seller_id` and `valid_from`), `seller_id`, `zip_code_prefix`, `city`, `state`, `location_key`, `valid_from`, `valid_to` (null for the current version), `is_current`.
 
-Built from a dbt snapshot with the `timestamp` strategy on a business `updated_at`, never run time. Facts join the version where `valid_from <= purchased_at < coalesce(valid_to, '9999-12-31')`. The baseline `updated_at` is 2016-01-01, before the first order (2016-09-04), so every order finds a version. Tests: exactly one current row per seller, and no overlapping ranges.
+Built from `silver_seller_versions`, which rebuilds every version from append-only bronze on each run: one version per `(seller_id, updated_at)`, the latest batch winning, with `valid_to` the next version's start. Versions follow the business `updated_at`, never run time. Not a dbt snapshot: silver keeps only the latest row, so a snapshot would lose versions on a fresh rebuild. Facts join the version where `valid_from <= purchased_at < coalesce(valid_to, '9999-12-31')`. The baseline `updated_at` is 2016-01-01, before the first order (2016-09-04), so every order finds a version. Tests: exactly one current row per seller, no overlapping ranges or gaps, and no order item on the unknown seller.
 
 ### dim_date
 
