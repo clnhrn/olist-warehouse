@@ -1,0 +1,14 @@
+version: 2
+effective_from: 2016-02-01
+table: sellers
+source_file: olist_sellers_dataset.csv
+description: >
+  One row per seller. From v2 the source sends when the seller record last
+  changed; batches before v2 have no value.
+primary_key: [seller_id]
+columns:
+  - {name: seller_id, parse: id32, nullable: false}
+  - {name: seller_zip_code_prefix, parse: zip, nullable: false}
+  - {name: seller_city, parse: text, nullable: false}
+  - {name: seller_state, parse: state, nullable: false}
+  - {name: seller_updated_at, parse: timestamp, nullable: false}

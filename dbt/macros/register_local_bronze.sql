@@ -2,7 +2,9 @@
     Local target only: expose the bronze Parquet in data/bronze/ as DuckDB
     views named like the BigQuery tables (dev_bronze.<table>). Sources then
     resolve the same way on both adapters, and unit tests can read their
-    columns. Runs as an on-run-start hook; a no-op on BigQuery.
+    columns. Batches under different contract versions have different
+    columns, so files are combined by column name. Runs as an on-run-start
+    hook; a no-op on BigQuery.
 #}
 {% macro register_local_bronze() %}
     {%- if target.type != 'duckdb' or not execute -%}
@@ -17,7 +19,7 @@
         {%- do run_query(
             'create or replace view ' ~ node.schema ~ '.' ~ node.identifier ~ ' as '
             ~ "select * from read_parquet('" ~ bronze_dir ~ '/' ~ node.identifier
-            ~ "/load_date=*/data.parquet', hive_partitioning = false)"
+            ~ "/load_date=*/data.parquet', hive_partitioning = false, union_by_name = true)"
         ) -%}
     {%- endfor -%}
     {{ return('') }}

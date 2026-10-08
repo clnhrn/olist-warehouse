@@ -1,7 +1,4 @@
-from datetime import date
-
 import duckdb
-import pytest
 
 from ingestion.cli import main
 from ingestion.idempotency import (
@@ -14,21 +11,17 @@ from ingestion.idempotency import (
 from ingestion.ingest import ingest
 from ingestion.land import land
 from ingestion.storage import LocalStorage
+from tests.conftest import FIRST_LOAD_DATE
 
-LOAD_DATE = date(2016, 1, 1)
-
-
-@pytest.fixture
-def two_contracts(contracts):
-    return {t: contracts[t] for t in ("sellers", "orders")}
+LOAD_DATE = FIRST_LOAD_DATE
 
 
-def test_rerun_of_same_date_keeps_bronze_counts(tmp_path, two_contracts, source_dir):
+def test_rerun_of_same_date_keeps_bronze_counts(tmp_path, two_tables, source_dir):
     lake = LocalStorage(tmp_path / "lake")
-    land(lake, two_contracts, source_dir, LOAD_DATE)
+    land(lake, two_tables.for_date(LOAD_DATE), source_dir, LOAD_DATE)
 
     changes = check_rerun(
-        run=lambda: ingest(lake, None, two_contracts, LOAD_DATE, force=True),
+        run=lambda: ingest(lake, None, two_tables, LOAD_DATE, force=True),
         count=lambda: local_bronze_counts(tmp_path / "lake"),
     )
 

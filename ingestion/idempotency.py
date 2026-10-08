@@ -37,7 +37,9 @@ def local_bronze_counts(lake_dir: Path) -> RowCounts:
     for table_dir in sorted(p for p in bronze.iterdir() if p.is_dir()):
         files = sorted(table_dir.glob("load_date=*/data.parquet"))
         if files:
-            rows = pl.scan_parquet(files).select(pl.len()).collect().item()
+            # One file at a time: batches under different contract versions
+            # have different columns.
+            rows = sum(pl.scan_parquet(f).select(pl.len()).collect().item() for f in files)
             counts[f"bronze.{table_dir.name}"] = int(rows)
     return counts
 

@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
-from contracts.loader import TableContract, load_contracts
+from contracts.loader import ContractError, load_registry
 from ingestion.config import (
     DBT_PROJECT_DIR,
     LOCAL_DUCKDB_PATH,
@@ -80,17 +80,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _select(
-    contracts: dict[str, TableContract], tables: list[str] | None
-) -> dict[str, TableContract]:
-    if not tables:
-        return contracts
-    unknown = sorted(set(tables) - set(contracts))
-    if unknown:
-        raise ValueError(f"Unknown tables {unknown}. Known: {sorted(contracts)}")
-    return {t: contracts[t] for t in tables}
-
-
 def _build(sink: Sink, env: Env) -> tuple[Storage, BigQueryWarehouse | None]:
     if sink is Sink.LOCAL:
         return LocalStorage(LOCAL_LAKE_DIR), None
@@ -114,11 +103,11 @@ def _counter(warehouse: BigQueryWarehouse | None, dbt: bool) -> Callable[[], dic
     return lambda: warehouse.row_counts(("bronze", *layers))
 
 
-def _rerun_step(args: argparse.Namespace, storage, warehouse, contracts) -> Callable[[], None]:
+def _rerun_step(args: argparse.Namespace, storage, warehouse, registry) -> Callable[[], None]:
     target = "local" if warehouse is None else "dev"
 
     def step() -> None:
-        ingest(storage, warehouse, contracts, args.load_date, force=True)
+        ingest(storage, warehouse, registry, args.load_date, force=True)
         if not args.no_dbt:
             run_dbt_build(DBT_PROJECT_DIR, target)
 
@@ -133,13 +122,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "check-rerun" and args.env is Env.PROD:
             raise ValueError("check-rerun writes data, so it runs against dev only.")
-        contracts = _select(load_contracts(), args.tables)
+        registry = load_registry().select(args.tables)
         storage, warehouse = _build(args.sink, args.env)
         if args.command == "land":
-            land(storage, contracts, args.source_dir, args.load_date)
+            land(storage, registry.for_date(args.load_date), args.source_dir, args.load_date)
         elif args.command == "check-rerun":
             changes = check_rerun(
-                run=_rerun_step(args, storage, warehouse, contracts),
+                run=_rerun_step(args, storage, warehouse, registry),
                 count=_counter(warehouse, dbt=not args.no_dbt),
             )
             if changes:
@@ -148,11 +137,11 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Rerun of %s left every row count unchanged.", args.load_date)
         else:
             if args.all_dates:
-                results = ingest_landed(storage, warehouse, contracts, force=args.force)
+                results = ingest_landed(storage, warehouse, registry, force=args.force)
             else:
                 results = {
                     args.load_date: ingest(
-                        storage, warehouse, contracts, args.load_date, force=args.force
+                        storage, warehouse, registry, args.load_date, force=args.force
                     )
                 }
             for load_date, result in results.items():
@@ -167,7 +156,13 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.CalledProcessError as exc:
         logger.error("dbt build failed with exit code %d.", exc.returncode)
         return 1
-    except (ContractViolationError, LandingExistsError, FileNotFoundError, ValueError) as exc:
+    except (
+        ContractError,
+        ContractViolationError,
+        LandingExistsError,
+        FileNotFoundError,
+        ValueError,
+    ) as exc:
         logger.error("%s", exc)
         return 1
     return 0

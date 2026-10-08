@@ -59,6 +59,11 @@ models:
               arguments:
                 values: [AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA,
                          PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO]
+      - name: updated_at
+        description: >
+          When the source last changed the seller record (Brazil local time).
+          Sent from contract v2 (batch 2016-02-01); null if the latest row came
+          from an earlier batch.
       - name: _load_date
         description: Batch the row came from. Deduplication orders by this first.
         data_tests: [not_null]
@@ -285,7 +290,8 @@ models:
 
   - name: silver_products
     description: >
-      One row per product. The source "lenght" typos are fixed here. Category
+      One row per product. The "lenght" typo columns (contract v1) and their
+      corrected names (v2, from batch 2016-02-01) are merged here. Category
       names stay in Portuguese; gold adds English names from
       silver_product_category_translation.
     columns:

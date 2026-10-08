@@ -1,0 +1,18 @@
+version: 2
+effective_from: 2016-02-01
+table: products
+source_file: olist_products_dataset.csv
+description: >
+  One row per product. From v2 the source spells "length" correctly; bronze
+  keeps both spellings and silver merges them.
+primary_key: [product_id]
+columns:
+  - {name: product_id, parse: id32, nullable: false}
+  - {name: product_category_name, parse: text, nullable: true}
+  - {name: product_name_length, parse: int, nullable: true, renamed_from: product_name_lenght}
+  - {name: product_description_length, parse: int, nullable: true, renamed_from: product_description_lenght}
+  - {name: product_photos_qty, parse: int, nullable: true}
+  - {name: product_weight_g, parse: int, nullable: true}
+  - {name: product_length_cm, parse: int, nullable: true}
+  - {name: product_height_cm, parse: int, nullable: true}
+  - {name: product_width_cm, parse: int, nullable: true}

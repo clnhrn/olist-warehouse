@@ -14,28 +14,38 @@
 
 
 {#- Ends a model: a `candidates` CTE and the final select, keeping one row per
-    key. On incremental runs the current silver rows for the incoming keys
-    compete too. Without them, a rerun of an old batch (new _loaded_at, old
-    _load_date) would pass the _loaded_at filter and overwrite newer data. -#}
+    key. On incremental runs an incoming row is kept only if silver holds no
+    newer row for its key, so the merge leaves newer rows alone. Without
+    that, a rerun of an old batch (new _loaded_at, old _load_date) would pass
+    the _loaded_at filter and overwrite newer data.
+    Only the key and lineage columns of the existing table are read, so a
+    model can gain a column (on_schema_change adds it) without a full refresh. -#}
 {% macro latest_row_per_key(relation, key_columns) -%}
-    {%- set keys = key_columns | join(', ') -%}
 candidates as (
     select * from {{ relation }}
-    {%- if is_incremental() %}
-    union all
-    select existing.*
-    from {{ this }} as existing
-    inner join (select distinct {{ keys }} from {{ relation }}) as incoming
-        using ({{ keys }})
-    {%- endif %}
+    where true
+    qualify row_number() over (
+        partition by {{ key_columns | join(', ') }}
+        order by _load_date desc, _loaded_at desc
+    ) = 1
 )
 
-select * from candidates
-where true
-qualify row_number() over (
-    partition by {{ keys }}
-    order by _load_date desc, _loaded_at desc
-) = 1
+select candidates.*
+from candidates
+{%- if is_incremental() %}
+left join {{ this }} as existing
+    on
+    {%- for key in key_columns %}
+        {% if not loop.first %}and {% endif %}candidates.{{ key }} = existing.{{ key }}
+    {%- endfor %}
+where
+    existing.{{ key_columns[0] }} is null
+    or candidates._load_date > existing._load_date
+    or (
+        candidates._load_date = existing._load_date
+        and candidates._loaded_at > existing._loaded_at
+    )
+{%- endif %}
 {%- endmacro %}
 
 

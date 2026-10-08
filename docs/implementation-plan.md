@@ -156,11 +156,16 @@ Grains confirmed on 2026-10-08. Full design, with columns, keys, and the data fi
   - dbt: set `on_schema_change` on incremental models (`append_new_columns` or `fail`).
   - Contracts: version them (v1, v2) and fail loudly on breaking changes.
 - Write a short decision doc: which changes are auto-accepted and which block the pipeline.
+- Decided while building (see [schema-evolution.md](schema-evolution.md)):
+  - Batch 2 (`load_date=2016-02-01`) is a full snapshot: products renames the two "lenght" columns, sellers adds `seller_updated_at` (all at the 2016-01-01 baseline). Built by `scripts/make_batch2.py`.
+  - Each contract has an `effective_from` load date, and every date is validated against the version in force then, so reruns of old batches keep working. A rename is declared with `renamed_from`; loading the contracts refuses breaking changes.
+  - Bronze keeps every column any version had (both spellings after a rename). Ingestion adds new columns to the bronze tables on every run, even when it skips, so silver never selects a missing column.
+  - The silver incremental macro reads only key and lineage columns from the existing table, so `append_new_columns` works without a full refresh.
 
 ### Phase 6: SCD2 (1 to 2 days)
-- Olist is a one-time snapshot, so simulate change. Seller records have no change date, so add an `updated_at` column to silver sellers:
-  - Batch 1 (the original data): set `updated_at` to a baseline date before the first order, for example 2016-01-01.
-  - Batch 2: pick some sellers, change their city or state, and set `updated_at` to a date inside the order history, for example 2018-01-01. That way some orders fall before the change and some after.
+- Olist is a one-time snapshot, so simulate change. Since Phase 5, the source sends `seller_updated_at` (contract v2, batch 2), and silver sellers exposes it as `updated_at`:
+  - Batch 1 (the original data, contract v1) has no value: use the baseline 2016-01-01 for it. Batch 2 already sends that baseline.
+  - Batch 3: pick some sellers, change their city or state, and set `seller_updated_at` to a date inside the order history, for example 2018-01-01. That way some orders fall before the change and some after.
 - Use a dbt snapshot on silver sellers with the `timestamp` strategy and `updated_at`. Do not rely on the default run time, because `dbt_valid_from` would then be the day you ran dbt, not the day the seller changed.
 - Build `dim_seller` in gold from the snapshot.
 - Join facts to the correct seller version where the order purchase date falls between `dbt_valid_from` and `dbt_valid_to`.
