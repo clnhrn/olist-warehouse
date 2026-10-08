@@ -55,7 +55,7 @@ Fill these in as the project takes shape.
 - Every model has a description and column descriptions in its YAML file.
 - Every silver model has `unique` and `not_null` tests on its key. Gold models use enforced dbt model contracts.
 - Dimensions use surrogate keys. `order_id` stays on facts as a degenerate dimension.
-- SCD2 uses a dbt snapshot with the `timestamp` strategy and a business `updated_at` column, never run time.
+- SCD2 history is rebuilt from append-only bronze by a model (versions by a business `updated_at`, never run time), not a dbt snapshot, so a fresh rebuild keeps every version.
 - Idempotency: rerunning the same `load_date` must not change row counts in any layer. Test this.
 - Add `_loaded_at`, `_load_date`, and `_source_file` to every bronze table.
 - Silver deduplication orders by `_load_date` then `_loaded_at`, never `_loaded_at` alone.
@@ -92,4 +92,4 @@ Format: `<type>(<scope>): <short summary>`
 - Product category names are in Portuguese. Use the translation table.
 - The product table has typos in column names (`product_name_lenght`, `product_description_lenght`).
 - Some orders have missing delivery timestamps.
-- Data is a one-time snapshot. Batch 2 (schema change and seller changes) is simulated.
+- Data is a one-time snapshot. Batch 2 (schema change) and batch 3 (seller changes) are simulated.

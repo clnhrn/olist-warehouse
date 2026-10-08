@@ -75,7 +75,6 @@ olist-warehouse/
   dbt/
     models/silver/
     models/gold/
-    snapshots/        # SCD2
     seeds/
     tests/
   contracts/          # Pandera / schema definitions
@@ -166,8 +165,10 @@ Grains confirmed on 2026-10-08. Full design, with columns, keys, and the data fi
 - Olist is a one-time snapshot, so simulate change. Since Phase 5, the source sends `seller_updated_at` (contract v2, batch 2), and silver sellers exposes it as `updated_at`:
   - Batch 1 (the original data, contract v1) has no value: use the baseline 2016-01-01 for it. Batch 2 already sends that baseline.
   - Batch 3: pick some sellers, change their city or state, and set `seller_updated_at` to a date inside the order history, for example 2018-01-01. That way some orders fall before the change and some after.
-- Use a dbt snapshot on silver sellers with the `timestamp` strategy and `updated_at`. Do not rely on the default run time, because `dbt_valid_from` would then be the day you ran dbt, not the day the seller changed.
-- Build `dim_seller` in gold from the snapshot.
+- Version sellers by the business `updated_at`, never by run time, so `valid_from` is the day the seller changed, not the day dbt ran.
+- Decided 2026-10-08: build the versions with a model over all bronze batches (`silver_seller_versions`), not a dbt snapshot on silver. Silver keeps only the latest row per seller, so a snapshot records only the states it happens to see. On a fresh rebuild, or when several batches arrive between dbt runs, it loses versions that bronze still holds. The model rebuilds the same history every time.
+- Build `dim_seller` in gold from `silver_seller_versions`.
+- Batch 3 (`load_date=2016-03-01`, `scripts/make_batch3.py`): 20 sellers with orders on both sides of 2018-01-01 move to another state on that date.
 - Join facts to the correct seller version where the order purchase date falls between `dbt_valid_from` and `dbt_valid_to`.
 - Add tests: every seller has exactly one current row, and no seller's version ranges overlap.
 
