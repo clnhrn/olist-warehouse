@@ -138,9 +138,9 @@ python -m ingestion check-rerun --load-date D --sink local          # local lake
 python -m ingestion check-rerun --load-date D --sink gcs --env dev  # dev_* datasets
 ```
 
-One run step is a forced ingest of the date followed by `dbt build`. The check runs that step, records the row count of every table in every layer, runs it again, and exits non-zero if any count changed. Counts are keyed by layer (`bronze.orders`, `silver.silver_orders`); gold joins automatically in Phase 4. `--no-dbt` checks bronze only. It refuses `--env prod`, because it writes data. In BigQuery the counts come from table metadata, so counting runs no queries and costs nothing.
+One run step is a forced ingest of the date followed by `dbt build`. The check runs that step, records the row count of every table in every layer, runs it again, and exits non-zero if any count changed. Counts are keyed by layer (`bronze.orders`, `silver.silver_orders`, `gold.fact_orders`). `--no-dbt` checks bronze only. It refuses `--env prod`, because it writes data. In BigQuery the counts come from table metadata, so counting runs no queries and costs nothing.
 
-On the full dataset, all 9 bronze and 9 silver tables kept their counts, both locally and in dev BigQuery (for example, 99,441 orders, 1,000,163 bronze and 738,332 silver geolocation rows).
+On the full dataset, all 9 bronze, 10 silver (9 models and 1 seed), and 9 gold tables kept their counts, both locally and in dev BigQuery (for example, 99,441 orders in every layer, 1,000,163 bronze and 738,332 silver geolocation rows, 112,650 rows in `fact_order_items`).
 
 ### Rerunning an old batch
 
@@ -234,3 +234,63 @@ gcloud workflows run pipeline --location=us-central1
 ### Cost
 
 About zero. The schedule uses 1 of the 3 free Cloud Scheduler jobs and about 4 Workflows steps a day (5,000 free a month). Both jobs run about 4 minutes a day in total, inside the Cloud Run free tier. A daily dbt build scans a few hundred MB, inside the free 1 TB of queries. Artifact Registry holds about 0.4 GB because versions share layers; keeping 2 versions per image keeps it near the 0.5 GB free tier.
+
+## Phase 4: Gold layer, star schema
+
+Gold is a Kimball star schema: facts hold events and measures, dimensions describe them. The full design, with every column and the data findings behind each choice, is in [docs/star-schema-design.md](docs/star-schema-design.md).
+
+### Tables
+
+| Table | Grain | Rows |
+|---|---|---|
+| `fact_order_items` | one row per order item | 112,650 |
+| `fact_orders` | one row per order (accumulating snapshot), including 775 orders with no items | 99,441 |
+| `fact_payments` | one row per payment record | 103,886 |
+| `fact_reviews` | one row per review per order | 99,224 |
+| `dim_customer` | one row per person (`customer_unique_id`) | 96,096 + unknown |
+| `dim_location` | one row per zip code prefix (customer and seller roles) | 19,177 + unknown |
+| `dim_product` | one row per product, with English category names | 32,951 + unknown |
+| `dim_seller` | one row per seller per version (SCD2 from Phase 6) | 3,095 + unknown |
+| `dim_date` | one row per day, 2016 to 2020 | 1,827 + unknown |
+
+An accumulating snapshot has one row per process (an order) that fills in as the process moves forward: approved, shipped, delivered.
+
+### Design choices
+
+- **Why these grains.** Item revenue lives at item level, because 1,278 orders have items from several sellers. Delivery measures (days to deliver, lateness) live on `fact_orders`, so they are never repeated per item. Payments get their own fact and are never split across items: they differ from the item total for 303 orders (interest, vouchers).
+- **Surrogate keys.** Dimension keys are hashes of the natural key (`dbt_utils.generate_surrogate_key`). They are stable across rebuilds, so a rerun never reassigns keys. `dim_date` uses a readable `YYYYMMDD` integer.
+- **Unknown members.** Every dimension has a `'-1'` row (`-1` for dates), and every fact foreign key is non-null. A milestone that has not happened (an undelivered order's delivery date) points to `-1` instead of null, so inner joins never drop facts.
+- **Seller versions already.** `dim_seller` has the SCD2 columns (`valid_from`, `valid_to`, `is_current`) with one version per seller from a 2016-01-01 baseline. `fact_order_items` already joins the version valid at purchase time, so Phase 6 only swaps the source for a snapshot.
+- **Rebuilt, not merged.** Gold tables are rebuilt from silver on every run. At this size that costs seconds, and a full rebuild is idempotent by construction.
+
+### Contracts
+
+Every gold model has an enforced dbt model contract: the build fails if a column's name or type differs from the YAML. The contracts use types both engines accept (`string`, `int64`, `bool`, `date`, `timestamp`, `numeric(p, s)`), so the same YAML enforces on DuckDB and BigQuery. BigQuery does not allow `numeric(18, 2)` in a `CAST`, only in a column definition, so a `to_numeric` macro rounds in SQL and the contract's DDL (the `CREATE TABLE` statement) sets the precision. Key columns also carry `not_null` constraints, which both engines enforce.
+
+### Partitioning and clustering
+
+`fact_order_items` and `fact_orders` are partitioned by purchase month and clustered by their common filters (`seller_key`, `product_key`; `customer_key`, `order_status`). Partitioning splits a table into chunks by a column, so a query filtered on that column scans only the matching chunks. Clustering sorts data within each chunk, so filters on those columns skip blocks. Each fact table is tens of MB, far below where this changes cost, but the agent in Phase 9 queries these tables, and on real volumes it is what keeps a date-filtered query cheap. Monthly partitions, not daily, because BigQuery caps a table at 10,000 partitions and daily partitions this small add overhead. DuckDB has no equivalent, so the config applies on BigQuery only.
+
+### Tests
+
+63 tests on gold, on top of the contracts:
+
+- Primary keys: `unique` (`unique_combination_of_columns` for the composite fact keys).
+- Every fact foreign key exists in its dimension (`relationships`).
+- Fact row counts equal silver (`equal_rowcount`), so no join fans out or drops rows.
+- `fact_orders` totals add up to `fact_order_items` (a singular test).
+- Exactly one current version per seller.
+
+The same numbers come out of both engines: 775 orders with no items, 14 status and date mismatches, 6,535 late deliveries, and revenue (excluding canceled and unavailable orders) of BRL 13,494,400.74.
+
+### How to run
+
+```bash
+cd dbt
+uv run dbt build --target local --select models/gold+   # DuckDB
+uv run dbt build --target dev --select models/gold+     # dev BigQuery, ADC as sa-dev
+```
+
+### Cost
+
+About zero. Building the 9 gold models in dev BigQuery scans about 185 MB (plus the tests), inside the free 1 TB of queries a month. The tables store about 115 MB, inside the free 10 GB.

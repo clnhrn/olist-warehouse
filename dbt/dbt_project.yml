@@ -26,3 +26,8 @@ models:
       +on_schema_change: append_new_columns
     gold:
       +schema: gold
+      # Rebuilt from silver on every run: idempotent by construction, and
+      # cheap at this size. Contracts fail the build on any column drift.
+      +materialized: table
+      +contract:
+        enforced: true
