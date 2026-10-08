@@ -29,14 +29,15 @@ Fill these in as the project takes shape.
 - Ingest locally: `uv run python -m ingestion land --load-date D --sink local`, then `... ingest --load-date D --sink local`
 - Ingest to dev BigQuery: impersonate `sa-dev`, set `OLIST_PROJECT_ID`, then `... ingest --load-date D --env dev --sink gcs`
 - Ingest to prod: only via `gcloud run jobs execute ingestion --region=us-central1 --wait --args=ingest,--env,prod,--sink,gcs,--load-date,D`, with approval
+- Full prod pipeline (ingest, then dbt): `gcloud workflows run pipeline --location=us-central1`, with approval. Also runs daily at 06:00 America/Sao_Paulo
 - Rerun check (dev only): `uv run python -m ingestion check-rerun --load-date D --sink local` (or `--sink gcs --env dev`)
 - Python tests: `uv run pytest`
 - Lint Python: `uv run ruff check .` and `uv run ruff format --check .`
-- Terraform: `terraform -chdir=terraform init -backend-config=backend.hcl`, then `plan -out=<name>.tfplan`; apply only with approval
-- Build the image: `docker build --platform=linux/amd64 --provenance=false --sbom=false -f ingestion/Dockerfile -t <repo>/ingestion:<git-sha> .`
-- Local dbt run (DuckDB): `dbt build --target local` (Phase 3)
-- Dev dbt run (BigQuery dev): `dbt build --target dev` (Phase 3)
-- Lint SQL: `sqlfluff lint dbt/models` (Phase 3)
+- Terraform: `terraform -chdir=terraform init -backend-config=backend.hcl`, then `plan -out=<name>.tfplan`; apply only with approval. ADC impersonates sa-dev, which cannot read the state, so Terraform runs with a token from your gcloud user login: `GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token) terraform ...`
+- Build the images: `docker build --platform=linux/amd64 --provenance=false --sbom=false -f ingestion/Dockerfile -t <repo>/ingestion:<git-sha> .` (same with `-f dbt/Dockerfile -t <repo>/dbt:<git-sha>`)
+- dbt runs from `dbt/`, where `profiles.yml` and its relative paths live: `cd dbt && uv run dbt build --target local` (DuckDB) or `--target dev` (BigQuery dev, needs `OLIST_PROJECT_ID`)
+- Lint SQL: `cd dbt && uv run sqlfluff lint models`
+- Pre-commit: `uv run pre-commit install` once; hooks run ruff, sqlfluff, and terraform fmt
 
 ## Rules (always follow)
 
