@@ -15,7 +15,7 @@ import pandera.errors as pa_errors
 import polars as pl
 
 from contracts.loader import DEFAULT_VERSION, TableContract, pandera_schema
-from ingestion.config import bronze_key, landing_key
+from ingestion.config import bronze_key, landed_dates, landing_key
 from ingestion.manifest import Manifest, TableEntry, read_manifest, write_manifest
 from ingestion.storage import Storage
 from ingestion.warehouse import BigQueryWarehouse
@@ -136,3 +136,16 @@ def ingest(
     manifest.loaded_at = loaded_at.isoformat()
     write_manifest(storage, load_date, manifest)
     return IngestResult(skipped=False, rows=rows)
+
+
+def ingest_landed(
+    storage: Storage,
+    warehouse: BigQueryWarehouse | None,
+    contracts: dict[str, TableContract],
+    force: bool = False,
+) -> dict[date, IngestResult]:
+    """Ingest every landed date, oldest first. The scheduled run: unchanged dates skip."""
+    dates = landed_dates(storage)
+    if not dates:
+        logger.info("No load dates in landing, nothing to ingest.")
+    return {d: ingest(storage, warehouse, contracts, d, force=force) for d in dates}

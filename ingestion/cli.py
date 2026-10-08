@@ -1,7 +1,7 @@
 """Command line entry point.
 
 python -m ingestion land   --load-date D [--sink local|gcs] [--env dev|prod]
-python -m ingestion ingest --load-date D [--sink local|gcs] [--env dev|prod] [--force]
+python -m ingestion ingest --load-date D | --all-dates [--sink local|gcs] [--env dev|prod] [--force]
 python -m ingestion check-rerun --load-date D [--sink local|gcs] [--no-dbt]   (dev only)
 All accept --tables to limit the run to some bronze tables.
 """
@@ -33,7 +33,7 @@ from ingestion.idempotency import (
     local_warehouse_counts,
     run_dbt_build,
 )
-from ingestion.ingest import ContractViolationError, ingest
+from ingestion.ingest import ContractViolationError, ingest, ingest_landed
 from ingestion.land import LandingExistsError, land
 from ingestion.storage import GcsStorage, LocalStorage, Storage
 from ingestion.warehouse import BigQueryWarehouse
@@ -50,20 +50,30 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--load-date", type=date.fromisoformat, required=True)
     common.add_argument("--sink", type=Sink, choices=list(Sink), default=Sink.LOCAL)
     common.add_argument("--env", type=Env, choices=list(Env), default=Env.DEV)
     common.add_argument("--tables", nargs="+", help="Subset of bronze tables (default: all).")
+    one_date = argparse.ArgumentParser(add_help=False)
+    one_date.add_argument("--load-date", type=date.fromisoformat, required=True)
 
-    land_parser = sub.add_parser("land", parents=[common], help="Copy raw CSVs into landing.")
+    land_parser = sub.add_parser(
+        "land", parents=[common, one_date], help="Copy raw CSVs into landing."
+    )
     land_parser.add_argument("--source-dir", type=Path, default=LOCAL_RAW_DIR)
 
     ingest_parser = sub.add_parser("ingest", parents=[common], help="Load landing into bronze.")
+    dates = ingest_parser.add_mutually_exclusive_group(required=True)
+    dates.add_argument("--load-date", type=date.fromisoformat)
+    dates.add_argument(
+        "--all-dates",
+        action="store_true",
+        help="Every landed date, oldest first; unchanged dates are skipped (the scheduled run).",
+    )
     ingest_parser.add_argument("--force", action="store_true", help="Reload even if unchanged.")
 
     check_parser = sub.add_parser(
         "check-rerun",
-        parents=[common],
+        parents=[common, one_date],
         help="Run ingest and dbt twice for a load date; fail if any row count changes.",
     )
     check_parser.add_argument("--no-dbt", action="store_true", help="Check bronze only.")
@@ -137,11 +147,23 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             logger.info("Rerun of %s left every row count unchanged.", args.load_date)
         else:
-            result = ingest(storage, warehouse, contracts, args.load_date, force=args.force)
-            for table, rows in sorted(result.rows.items()):
-                logger.info(
-                    "%-30s %10d rows%s", table, rows, " (skipped)" if result.skipped else ""
-                )
+            if args.all_dates:
+                results = ingest_landed(storage, warehouse, contracts, force=args.force)
+            else:
+                results = {
+                    args.load_date: ingest(
+                        storage, warehouse, contracts, args.load_date, force=args.force
+                    )
+                }
+            for load_date, result in results.items():
+                for table, rows in sorted(result.rows.items()):
+                    logger.info(
+                        "%s %-30s %10d rows%s",
+                        load_date,
+                        table,
+                        rows,
+                        " (skipped)" if result.skipped else "",
+                    )
     except subprocess.CalledProcessError as exc:
         logger.error("dbt build failed with exit code %d.", exc.returncode)
         return 1
