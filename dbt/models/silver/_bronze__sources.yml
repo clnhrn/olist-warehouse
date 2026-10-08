@@ -12,24 +12,35 @@ sources:
       # The dataset is a one-time snapshot, so freshness can only warn.
       freshness:
         warn_after: {count: 30, period: day}
+    # Every table warns when its newest batch's row count moves more than 50%
+    # from the batch before (tests/generic/batch_row_count_change.sql).
     tables:
       - name: customers
+        data_tests: [batch_row_count_change]
         description: One row per order's customer, per batch. customer_unique_id identifies the person.
       - name: geolocation
+        data_tests: [batch_row_count_change]
         description: Zip code prefix coordinates, per batch. Has no key; duplicate rows are expected.
       - name: order_items
+        data_tests: [batch_row_count_change]
         description: One row per item within an order, per batch.
       - name: order_payments
+        data_tests: [batch_row_count_change]
         description: One row per payment record, per batch.
       - name: order_reviews
+        data_tests: [batch_row_count_change]
         description: One row per review per order, per batch. review_id alone is not unique.
       - name: orders
+        data_tests: [batch_row_count_change]
         description: One row per order with its lifecycle timestamps, per batch.
       - name: product_category_translation
+        data_tests: [batch_row_count_change]
         description: Portuguese to English product category names, per batch.
       - name: products
+        data_tests: [batch_row_count_change]
         description: >
           One row per product, per batch. Batches under contract v1 fill the
           "lenght" typo columns, batches under v2 the corrected ones.
       - name: sellers
+        data_tests: [batch_row_count_change]
         description: One row per seller, per batch. seller_updated_at is filled from contract v2.
