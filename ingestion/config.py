@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_RAW_DIR = REPO_ROOT / "data" / "raw"
 LOCAL_LAKE_DIR = REPO_ROOT / "data"
 LOCAL_DUCKDB_PATH = REPO_ROOT / "data" / "warehouse.duckdb"
+# pipeline_runs rows from local ingestion; dbt copies them into DuckDB.
+LOCAL_RUNS_DIR = REPO_ROOT / "data" / "_runs"
 DBT_PROJECT_DIR = REPO_ROOT / "dbt"
 DEFAULT_REGION = "us-central1"
 
@@ -97,6 +99,11 @@ def landed_dates(storage: Storage) -> list[date]:
 
 def bronze_key(table: str, load_date: date) -> str:
     return f"bronze/{table}/{_partition(load_date)}/data.parquet"
+
+
+def quarantine_key(table: str, load_date: date) -> str:
+    """Hive-style keys (table_name=, load_date=), so BigQuery reads them as partitions."""
+    return f"quarantine/table_name={table}/{_partition(load_date)}/data.parquet"
 
 
 def manifest_key(load_date: date) -> str:

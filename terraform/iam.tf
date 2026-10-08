@@ -52,6 +52,18 @@ resource "google_bigquery_dataset_iam_member" "ingestion_prod_bronze" {
   member     = google_service_account.ingestion_prod.member
 }
 
+# Both jobs append to ops.pipeline_runs; dbt also stores test failures there.
+resource "google_bigquery_dataset_iam_member" "ops_writers" {
+  for_each = {
+    ingestion_prod = google_service_account.ingestion_prod.member
+    dbt_prod       = google_service_account.dbt_prod.member
+  }
+
+  dataset_id = google_bigquery_dataset.layer["ops"].dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = each.value
+}
+
 resource "google_bigquery_dataset_iam_member" "dbt_prod_reads_bronze" {
   dataset_id = google_bigquery_dataset.layer["bronze"].dataset_id
   role       = "roles/bigquery.dataViewer"

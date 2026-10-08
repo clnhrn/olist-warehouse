@@ -4,13 +4,20 @@ from datetime import date
 import polars as pl
 import pytest
 
-from contracts.loader import METADATA_COLUMNS, bronze_schema
-from ingestion.ingest import ContractViolationError, read_landing_csv, validate
+from contracts.loader import METADATA_COLUMNS, TableContract, bronze_schema
+from ingestion.ingest import ContractViolationError, read_landing_csv, split_valid
 from tests.conftest import ORDERS_CSV, SELLERS_CSV
 
 
 def _frame(csv: str) -> pl.DataFrame:
     return read_landing_csv(csv.encode())
+
+
+def validate(df: pl.DataFrame, contract: TableContract) -> None:
+    """Every row passes. The fixtures have 2 rows, so one bad row (50%) is over
+    the quarantine limit and raises; quarantine itself is tested in test_ingest."""
+    _, rejected = split_valid(df, contract)
+    assert rejected.is_empty()
 
 
 def test_all_nine_contracts_load(contracts):

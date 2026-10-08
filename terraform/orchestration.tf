@@ -14,12 +14,15 @@ resource "google_service_account" "orchestrator_prod" {
   depends_on   = [google_project_service.apis]
 }
 
+# The workflow passes its execution id to each job as an env override
+# (OLIST_RUN_ID), which needs run.jobs.runWithOverrides; roles/run.invoker
+# has only run.jobs.run.
 resource "google_cloud_run_v2_job_iam_member" "orchestrator_runs_jobs" {
   for_each = local.pipeline_jobs
 
   name     = each.value
   location = var.region
-  role     = "roles/run.invoker"
+  role     = "roles/run.jobsExecutorWithOverrides"
   member   = google_service_account.orchestrator_prod.member
 
   depends_on = [google_cloud_run_v2_job.ingestion, google_cloud_run_v2_job.dbt]

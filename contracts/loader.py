@@ -35,6 +35,16 @@ METADATA_COLUMNS: dict[str, str] = {
     "_source_file": "STRING",
 }
 
+# Rows that failed their contract, one table for every source table. The
+# table_name and load_date partition keys come from the file path.
+QUARANTINE_COLUMNS: dict[str, str] = {
+    "source_row": "INTEGER",
+    "failed_checks": "STRING",
+    "raw_record": "STRING",
+    "_loaded_at": "TIMESTAMP",
+    "_source_file": "STRING",
+}
+
 PARSE_PATTERNS: dict[str, str] = {
     "id32": r"^[0-9a-f]{32}$",
     "zip": r"^\d{5}$",

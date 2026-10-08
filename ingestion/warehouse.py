@@ -7,7 +7,7 @@ from datetime import date
 
 from google.cloud import bigquery
 
-from contracts.loader import TableContract
+from contracts.loader import QUARANTINE_COLUMNS, TableContract
 from ingestion.config import GcpSettings
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,30 @@ class BigQueryWarehouse:
             table.schema = [*table.schema, *added]
             self.client.update_table(table, ["schema"])
             logger.info("Added columns %s to %s", [f.name for f in added], table.full_table_id)
+
+    def ensure_quarantine_table(self) -> None:
+        """External table over the quarantine Parquet in the lake bucket.
+
+        The files are the data: a rerun overwrites them, so the table can never
+        hold duplicates, and there is nothing to load or keep in sync. Explicit
+        schema; table_name and load_date come from the hive-style paths.
+        """
+        s = self.settings
+        prefix = f"gs://{s.lake_bucket}/quarantine"
+        config = bigquery.ExternalConfig(bigquery.ExternalSourceFormat.PARQUET)
+        config.source_uris = [f"{prefix}/*"]
+        hive = bigquery.HivePartitioningOptions()
+        hive.mode = "CUSTOM"
+        hive.source_uri_prefix = f"{prefix}/{{table_name:STRING}}/{{load_date:DATE}}"
+        config.hive_partitioning = hive
+
+        table = bigquery.Table(
+            f"{s.project_id}.{s.bronze_dataset}.quarantine",
+            schema=_schema(list(QUARANTINE_COLUMNS.items())),
+        )
+        table.external_data_configuration = config
+        table.description = "Source rows that failed their contract, with the checks they failed."
+        self.client.create_table(table, exists_ok=True)
 
     def load_partition(
         self,

@@ -7,6 +7,7 @@ locals {
     "cloudscheduler.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "monitoring.googleapis.com",
     "run.googleapis.com",
     "workflowexecutions.googleapis.com",
     "workflows.googleapis.com",

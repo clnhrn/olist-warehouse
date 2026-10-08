@@ -19,6 +19,7 @@ class TableEntry:
     landing_md5: str
     rows: int
     contract_version: int = 1
+    rows_quarantined: int = 0
 
 
 @dataclass

@@ -122,6 +122,9 @@ models:
             expression: "not (order_status = 'delivered' and delivered_at is null)"
           config:
             severity: warn
+            store_failures: true
+            schema: ops
+            alias: failures_delivered_without_date
     columns:
       - name: order_id
         description: Order key. Primary key.
@@ -261,6 +264,9 @@ models:
                 expression: ">= 1"
               config:
                 severity: warn
+                store_failures: true
+                schema: ops
+                alias: failures_zero_installments
       - name: payment_value
         description: Amount paid in BRL.
         data_tests:
@@ -347,6 +353,9 @@ models:
                 field: category_name_pt
               config:
                 severity: warn
+                store_failures: true
+                schema: ops
+                alias: failures_untranslated_category
       - name: name_length
         description: Characters in the product name.
       - name: description_length
