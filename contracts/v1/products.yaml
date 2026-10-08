@@ -1,0 +1,15 @@
+version: 1
+table: products
+source_file: olist_products_dataset.csv
+description: One row per product. Source column names keep the "lenght" typos; silver renames them.
+primary_key: [product_id]
+columns:
+  - {name: product_id, parse: id32, nullable: false}
+  - {name: product_category_name, parse: text, nullable: true}
+  - {name: product_name_lenght, parse: int, nullable: true}
+  - {name: product_description_lenght, parse: int, nullable: true}
+  - {name: product_photos_qty, parse: int, nullable: true}
+  - {name: product_weight_g, parse: int, nullable: true}
+  - {name: product_length_cm, parse: int, nullable: true}
+  - {name: product_height_cm, parse: int, nullable: true}
+  - {name: product_width_cm, parse: int, nullable: true}

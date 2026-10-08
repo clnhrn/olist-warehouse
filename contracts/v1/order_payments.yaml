@@ -1,0 +1,11 @@
+version: 1
+table: order_payments
+source_file: olist_order_payments_dataset.csv
+description: One row per payment record. An order can have several payments.
+primary_key: [order_id, payment_sequential]
+columns:
+  - {name: order_id, parse: id32, nullable: false}
+  - {name: payment_sequential, parse: int, nullable: false}
+  - {name: payment_type, parse: text, nullable: false}
+  - {name: payment_installments, parse: int, nullable: false}
+  - {name: payment_value, parse: decimal, nullable: false}

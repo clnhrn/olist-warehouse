@@ -1,0 +1,8 @@
+version: 1
+table: product_category_translation
+source_file: product_category_name_translation.csv
+description: Portuguese to English product category names. The source file has a UTF-8 BOM.
+primary_key: [product_category_name]
+columns:
+  - {name: product_category_name, parse: text, nullable: false}
+  - {name: product_category_name_english, parse: text, nullable: false}

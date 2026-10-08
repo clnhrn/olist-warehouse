@@ -1,0 +1,13 @@
+version: 1
+table: order_reviews
+source_file: olist_order_reviews_dataset.csv
+description: One row per review per order. review_id alone is not unique.
+primary_key: [review_id, order_id]
+columns:
+  - {name: review_id, parse: id32, nullable: false}
+  - {name: order_id, parse: id32, nullable: false}
+  - {name: review_score, parse: int, nullable: false}
+  - {name: review_comment_title, parse: text, nullable: true}
+  - {name: review_comment_message, parse: text, nullable: true}
+  - {name: review_creation_date, parse: timestamp, nullable: false}
+  - {name: review_answer_timestamp, parse: timestamp, nullable: false}

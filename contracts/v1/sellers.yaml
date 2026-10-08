@@ -1,0 +1,10 @@
+version: 1
+table: sellers
+source_file: olist_sellers_dataset.csv
+description: One row per seller.
+primary_key: [seller_id]
+columns:
+  - {name: seller_id, parse: id32, nullable: false}
+  - {name: seller_zip_code_prefix, parse: zip, nullable: false}
+  - {name: seller_city, parse: text, nullable: false}
+  - {name: seller_state, parse: state, nullable: false}

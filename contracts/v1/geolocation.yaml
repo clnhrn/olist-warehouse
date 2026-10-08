@@ -1,0 +1,11 @@
+version: 1
+table: geolocation
+source_file: olist_geolocation_dataset.csv
+description: Zip code prefix coordinates. Has no key; duplicate rows are expected.
+primary_key: []
+columns:
+  - {name: geolocation_zip_code_prefix, parse: zip, nullable: false}
+  - {name: geolocation_lat, parse: decimal, nullable: false}
+  - {name: geolocation_lng, parse: decimal, nullable: false}
+  - {name: geolocation_city, parse: text, nullable: false}
+  - {name: geolocation_state, parse: state, nullable: false}
