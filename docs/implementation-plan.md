@@ -180,6 +180,12 @@ Grains confirmed on 2026-10-08. Full design, with columns, keys, and the data fi
 - Write a row per run to a `pipeline_runs` table: run id, layer, start and end time, rows in and out, status.
 - Add a Cloud Monitoring alert that emails you when a Cloud Run Job execution fails.
 - Add a short note on how this supports audit trails.
+- Decided while building:
+  - Quarantine: rows that fail a row-level check go to `quarantine/table_name=<table>/load_date=<date>/` Parquet, read by a `bronze.quarantine` external table, so a rerun overwrites them and never duplicates. More than 1% failing rows, or a structural change, still stops the batch. Dates that skip get an empty quarantine file, so the external table always has files to read.
+  - `pipeline_runs` lives in a new `ops` dataset (`dev_ops` in dev), outside the medallion layers, with one row per table (ingestion) or model (dbt, from an `on-run-end` hook), plus a tests summary row. The workflow passes its execution id as `OLIST_RUN_ID`, so both jobs share a run id. That needs `roles/run.jobsExecutorWithOverrides` on the orchestrator, because `roles/run.invoker` lacks `run.jobs.runWithOverrides`.
+  - The three warning-level tests store their failing rows in `ops.failures_*`.
+  - No Soda Core: freshness is already a dbt source check, and row count anomalies are a dbt generic test (`batch_row_count_change`, warns above a 50% change between batches).
+  - Two alert policies (failed job execution, failed workflow) on one email channel.
 
 ### Phase 8: CI/CD (1 to 2 days)
 - Terraform: Workload Identity Federation pool and provider (restricted to this GitHub repo), the CI service account, and the STS API.
