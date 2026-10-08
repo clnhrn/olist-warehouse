@@ -1,0 +1,13 @@
+version: 1
+table: order_items
+source_file: olist_order_items_dataset.csv
+description: One row per item within an order.
+primary_key: [order_id, order_item_id]
+columns:
+  - {name: order_id, parse: id32, nullable: false}
+  - {name: order_item_id, parse: int, nullable: false}
+  - {name: product_id, parse: id32, nullable: false}
+  - {name: seller_id, parse: id32, nullable: false}
+  - {name: shipping_limit_date, parse: timestamp, nullable: false}
+  - {name: price, parse: decimal, nullable: false}
+  - {name: freight_value, parse: decimal, nullable: false}

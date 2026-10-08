@@ -1,0 +1,11 @@
+version: 1
+table: customers
+source_file: olist_customers_dataset.csv
+description: One row per order's customer. customer_unique_id identifies the person.
+primary_key: [customer_id]
+columns:
+  - {name: customer_id, parse: id32, nullable: false}
+  - {name: customer_unique_id, parse: id32, nullable: false}
+  - {name: customer_zip_code_prefix, parse: zip, nullable: false}
+  - {name: customer_city, parse: text, nullable: false}
+  - {name: customer_state, parse: state, nullable: false}

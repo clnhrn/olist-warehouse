@@ -1,0 +1,14 @@
+version: 1
+table: orders
+source_file: olist_orders_dataset.csv
+description: One row per order with its lifecycle timestamps.
+primary_key: [order_id]
+columns:
+  - {name: order_id, parse: id32, nullable: false}
+  - {name: customer_id, parse: id32, nullable: false}
+  - {name: order_status, parse: text, nullable: false}
+  - {name: order_purchase_timestamp, parse: timestamp, nullable: false}
+  - {name: order_approved_at, parse: timestamp, nullable: true}
+  - {name: order_delivered_carrier_date, parse: timestamp, nullable: true}
+  - {name: order_delivered_customer_date, parse: timestamp, nullable: true}
+  - {name: order_estimated_delivery_date, parse: timestamp, nullable: false}
