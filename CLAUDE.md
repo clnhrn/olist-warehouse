@@ -29,6 +29,7 @@ Fill these in as the project takes shape.
 - Ingest locally: `uv run python -m ingestion land --load-date D --sink local`, then `... ingest --load-date D --sink local`
 - Ingest to dev BigQuery: impersonate `sa-dev`, set `OLIST_PROJECT_ID`, then `... ingest --load-date D --env dev --sink gcs`
 - Ingest to prod: only via `gcloud run jobs execute ingestion --region=us-central1 --wait --args=ingest,--env,prod,--sink,gcs,--load-date,D`, with approval
+- Rerun check (dev only): `uv run python -m ingestion check-rerun --load-date D --sink local` (or `--sink gcs --env dev`)
 - Python tests: `uv run pytest`
 - Lint Python: `uv run ruff check .` and `uv run ruff format --check .`
 - Terraform: `terraform -chdir=terraform init -backend-config=backend.hcl`, then `plan -out=<name>.tfplan`; apply only with approval
