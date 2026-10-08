@@ -2,7 +2,7 @@
 
 python -m ingestion land   --load-date D [--sink local|gcs] [--env dev|prod]
 python -m ingestion ingest --load-date D [--sink local|gcs] [--env dev|prod] [--force]
-python -m ingestion check-rerun --load-date D [--sink local|gcs]   (dev only)
+python -m ingestion check-rerun --load-date D [--sink local|gcs] [--no-dbt]   (dev only)
 All accept --tables to limit the run to some bronze tables.
 """
 
@@ -10,14 +10,29 @@ from __future__ import annotations
 
 import argparse
 import logging
+import subprocess
 import sys
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
 from contracts.loader import TableContract, load_contracts
-from ingestion.config import LOCAL_LAKE_DIR, LOCAL_RAW_DIR, Env, Sink, gcp_settings
-from ingestion.idempotency import check_rerun, local_bronze_counts
+from ingestion.config import (
+    DBT_PROJECT_DIR,
+    LOCAL_DUCKDB_PATH,
+    LOCAL_LAKE_DIR,
+    LOCAL_RAW_DIR,
+    Env,
+    Sink,
+    gcp_settings,
+)
+from ingestion.idempotency import (
+    DBT_LAYERS,
+    check_rerun,
+    local_bronze_counts,
+    local_warehouse_counts,
+    run_dbt_build,
+)
 from ingestion.ingest import ContractViolationError, ingest
 from ingestion.land import LandingExistsError, land
 from ingestion.storage import GcsStorage, LocalStorage, Storage
@@ -46,11 +61,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ingest_parser = sub.add_parser("ingest", parents=[common], help="Load landing into bronze.")
     ingest_parser.add_argument("--force", action="store_true", help="Reload even if unchanged.")
 
-    sub.add_parser(
+    check_parser = sub.add_parser(
         "check-rerun",
         parents=[common],
-        help="Force-ingest a load date twice and fail if any row count changes.",
+        help="Run ingest and dbt twice for a load date; fail if any row count changes.",
     )
+    check_parser.add_argument("--no-dbt", action="store_true", help="Check bronze only.")
     return parser.parse_args(argv)
 
 
@@ -78,10 +94,25 @@ def _build(sink: Sink, env: Env) -> tuple[Storage, BigQueryWarehouse | None]:
     return GcsStorage(settings.lake_bucket, settings.project_id), BigQueryWarehouse(settings)
 
 
-def _counter(warehouse: BigQueryWarehouse | None) -> Callable[[], dict[str, int]]:
+def _counter(warehouse: BigQueryWarehouse | None, dbt: bool) -> Callable[[], dict[str, int]]:
+    layers = DBT_LAYERS if dbt else ()
     if warehouse is None:
-        return lambda: local_bronze_counts(LOCAL_LAKE_DIR)
-    return warehouse.row_counts
+        return lambda: {
+            **local_bronze_counts(LOCAL_LAKE_DIR),
+            **local_warehouse_counts(LOCAL_DUCKDB_PATH, layers),
+        }
+    return lambda: warehouse.row_counts(("bronze", *layers))
+
+
+def _rerun_step(args: argparse.Namespace, storage, warehouse, contracts) -> Callable[[], None]:
+    target = "local" if warehouse is None else "dev"
+
+    def step() -> None:
+        ingest(storage, warehouse, contracts, args.load_date, force=True)
+        if not args.no_dbt:
+            run_dbt_build(DBT_PROJECT_DIR, target)
+
+    return step
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
             land(storage, contracts, args.source_dir, args.load_date)
         elif args.command == "check-rerun":
             changes = check_rerun(
-                run=lambda: ingest(storage, warehouse, contracts, args.load_date, force=True),
-                count=_counter(warehouse),
+                run=_rerun_step(args, storage, warehouse, contracts),
+                count=_counter(warehouse, dbt=not args.no_dbt),
             )
             if changes:
                 logger.error("Rerun of %s changed %d table(s).", args.load_date, len(changes))
@@ -111,6 +142,9 @@ def main(argv: list[str] | None = None) -> int:
                 logger.info(
                     "%-30s %10d rows%s", table, rows, " (skipped)" if result.skipped else ""
                 )
+    except subprocess.CalledProcessError as exc:
+        logger.error("dbt build failed with exit code %d.", exc.returncode)
+        return 1
     except (ContractViolationError, LandingExistsError, FileNotFoundError, ValueError) as exc:
         logger.error("%s", exc)
         return 1

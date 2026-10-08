@@ -1,12 +1,14 @@
 """Rerun check: run the pipeline twice for one load date, then compare row counts.
 
-Counts are keyed "<layer>.<table>". Bronze is counted now; Phases 3 and 4 add
-silver and gold counts to the same check, so one run covers every layer.
+Each run force-ingests bronze and then runs `dbt build`, so one check covers
+every layer. Counts are keyed "<layer>.<table>".
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +18,7 @@ import polars as pl
 logger = logging.getLogger(__name__)
 
 RowCounts = dict[str, int]
+DBT_LAYERS = ("silver", "gold")
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,36 @@ def local_bronze_counts(lake_dir: Path) -> RowCounts:
             rows = pl.scan_parquet(files).select(pl.len()).collect().item()
             counts[f"bronze.{table_dir.name}"] = int(rows)
     return counts
+
+
+def local_warehouse_counts(duckdb_path: Path, layers: tuple[str, ...] = DBT_LAYERS) -> RowCounts:
+    """Rows per table in the local DuckDB warehouse, for the dev_<layer> schemas."""
+    if not duckdb_path.is_file():
+        return {}
+    import duckdb  # dev dependency (with dbt-duckdb), not in the job image
+
+    schemas = [f"dev_{layer}" for layer in layers]
+    with duckdb.connect(str(duckdb_path), read_only=True) as con:
+        tables = con.execute(
+            "select table_schema, table_name from information_schema.tables"
+            " where table_type = 'BASE TABLE' and list_contains(?, table_schema)",
+            [schemas],
+        ).fetchall()
+        return {
+            f"{schema.removeprefix('dev_')}.{name}": int(
+                con.execute(f'select count(*) from "{schema}"."{name}"').fetchone()[0]
+            )
+            for schema, name in sorted(tables)
+        }
+
+
+def run_dbt_build(project_dir: Path, target: str) -> None:
+    """Run `dbt build` from the project folder, where profiles.yml lives."""
+    dbt = shutil.which("dbt")
+    if dbt is None:
+        raise FileNotFoundError("dbt not found. Run `uv sync` to install the dbt group.")
+    logger.info("Running dbt build --target %s", target)
+    subprocess.run([dbt, "build", "--target", target], cwd=project_dir, check=True)
 
 
 def diff_counts(first: RowCounts, second: RowCounts) -> list[CountChange]:

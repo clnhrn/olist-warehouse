@@ -15,6 +15,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_RAW_DIR = REPO_ROOT / "data" / "raw"
 LOCAL_LAKE_DIR = REPO_ROOT / "data"
+LOCAL_DUCKDB_PATH = REPO_ROOT / "data" / "warehouse.duckdb"
+DBT_PROJECT_DIR = REPO_ROOT / "dbt"
 DEFAULT_REGION = "us-central1"
 
 
@@ -38,9 +40,12 @@ class GcpSettings:
     def lake_bucket(self) -> str:
         return f"{self.project_id}-lake-{self.env}"
 
+    def dataset(self, layer: str) -> str:
+        return layer if self.env is Env.PROD else f"dev_{layer}"
+
     @property
     def bronze_dataset(self) -> str:
-        return "bronze" if self.env is Env.PROD else "dev_bronze"
+        return self.dataset("bronze")
 
 
 def resolve_project_id() -> str:
