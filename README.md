@@ -392,6 +392,8 @@ Locally (DuckDB) and in dev BigQuery:
 - A fresh DuckDB build over all 3 batches in one `dbt build` gives the same `silver_seller_versions`, `dim_seller`, `dim_location`, and `fact_order_items` as the batch-by-batch warehouse, row for row. That is the case a snapshot would have failed.
 - `check-rerun` for batch 3 left all 29 tables unchanged (28 plus `silver_seller_versions`).
 
+First prod run: the new dbt image went out through `terraform apply` (image change only; ingestion code did not change). The workflow ingested batch 3, and dbt passed (189 pass, the same 3 warnings). All 29 tables match dev.
+
 ### How to run
 
 ```bash
