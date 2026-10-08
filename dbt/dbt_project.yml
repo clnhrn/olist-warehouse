@@ -1,0 +1,22 @@
+name: olist_warehouse
+version: "1.0.0"
+profile: olist_warehouse
+require-dbt-version: [">=1.12.0", "<2.0.0"]
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+
+clean-targets: ["target", "dbt_packages"]
+
+flags:
+  require_explicit_package_overrides_for_builtin_materializations: true
+
+models:
+  olist_warehouse:
+    silver:
+      +schema: silver
+    gold:
+      +schema: gold

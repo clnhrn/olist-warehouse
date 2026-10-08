@@ -1,0 +1,32 @@
+# No secrets here. BigQuery targets use Application Default Credentials:
+# locally, ADC impersonating sa-dev; in Cloud Run, the job's service account.
+# Run dbt from this folder, so dbt finds this file and the relative data path.
+olist_warehouse:
+  target: local
+  outputs:
+    # DuckDB over the local bronze Parquet in data/bronze/. Free, no GCP access.
+    local:
+      type: duckdb
+      path: "{{ env_var('OLIST_DUCKDB_PATH', '../data/warehouse.duckdb') }}"
+      schema: dev
+      threads: 4
+
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('OLIST_PROJECT_ID') }}"
+      dataset: dev
+      location: us-central1
+      threads: 4
+      job_execution_timeout_seconds: 300
+      maximum_bytes_billed: 1000000000  # 1 GB per query
+
+    prod:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('OLIST_PROJECT_ID') }}"
+      dataset: prod
+      location: us-central1
+      threads: 4
+      job_execution_timeout_seconds: 300
+      maximum_bytes_billed: 1000000000  # 1 GB per query
