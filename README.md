@@ -69,7 +69,7 @@ Rerunning a load date can never duplicate rows:
 - Each table load uses `WRITE_TRUNCATE` on its own partition (`orders$20160101`), so it replaces exactly that date and nothing else.
 - A manifest records the MD5 of every landing file it loaded. If the files have not changed, a rerun skips the date. `--force` reloads anyway.
 
-Checked against `dev_bronze` with the full dataset: a forced rerun left every row count unchanged, and each partition held only the second run's `_loaded_at`. Phase 2 turns this into an automated test across all layers.
+Checked against `dev_bronze` with the full dataset: a forced rerun left every row count unchanged, and each partition held only the second run's `_loaded_at`. Phase 2 turns this into a repeatable check, `check-rerun` (below).
 
 ### Environments and access
 
@@ -122,3 +122,29 @@ The tests use small synthetic CSVs, so they run without the dataset. One extra t
 ### Cost
 
 Phase 1 runs at about zero: about 160 MB in each lake bucket and about 125 MB in Artifact Registry (free tiers: 5 GB and 0.5 GB). A full load is 9 BigQuery load jobs, which are free; the job runs about 4 minutes on 1 CPU, inside the Cloud Run free tier.
+
+## Phase 2: Idempotency
+
+Idempotent means running the same load date twice leaves the warehouse exactly as one run would. It matters because a scheduler retries failed runs, and a retry must never double the data.
+
+### The rerun check
+
+```
+python -m ingestion check-rerun --load-date D --sink local          # local lake
+python -m ingestion check-rerun --load-date D --sink gcs --env dev  # dev_bronze
+```
+
+It force-ingests the date, records the row count of every table, force-ingests it again, and exits non-zero if any count changed. Counts are keyed by layer (`bronze.orders`). Silver (Phase 3) and gold (Phase 4) join the same check, so one command will cover every layer. It refuses `--env prod`, because it writes data. In BigQuery the counts come from table metadata, so the check runs no queries and costs nothing.
+
+On the full dataset, locally, all 9 bronze tables kept their counts (for example, 99,441 orders and 1,000,163 geolocation rows).
+
+### Rerunning an old batch
+
+Bronze keeps every batch, so silver has to pick the latest row per business key. The order it uses matters:
+
+| Batch | `_load_date` | `_loaded_at` |
+|---|---|---|
+| Batch 1, rerun today | 2016-01-01 | today |
+| Batch 2, loaded last week | 2016-02-01 | last week |
+
+Ordering by `_loaded_at` alone would let the rerun of batch 1 win, and old data would overwrite new data. Silver orders by `_load_date` first, then `_loaded_at`, so batch 2 still wins. Phase 3 adds a test for exactly this case.

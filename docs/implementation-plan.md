@@ -113,6 +113,7 @@ olist-warehouse/
 - Silver keeps the latest row per business key, ordered by `_load_date` and then `_loaded_at`. Never order by `_loaded_at` alone: rerunning an old batch would give it the newest `_loaded_at`, and old data would win. Silver is built as dbt incremental models using `merge` on a unique key.
 - Gold is rebuilt or merged from silver the same way.
 - Test it: run the job twice for the same date, then assert row counts are unchanged in every layer.
+- Built in steps, because silver and gold do not exist yet: `check-rerun` covers bronze now, silver joins it in Phase 3 (with a test that rerunning an old batch does not beat newer data), and gold in Phase 4. Phase 2 is ticked off once gold is in the check.
 - Document this test in the README.
 
 ### Phase 3: Silver models in dbt (2 days)
