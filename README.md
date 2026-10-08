@@ -283,6 +283,8 @@ Every gold model has an enforced dbt model contract: the build fails if a column
 
 The same numbers come out of both engines: 775 orders with no items, 14 status and date mismatches, 6,535 late deliveries, and revenue (excluding canceled and unavailable orders) of BRL 13,494,400.74.
 
+First prod run: the new dbt image went out through `terraform apply` (image change only), and the workflow built gold with the same row counts as dev in all 9 tables (175 pass, the same 3 silver warnings).
+
 ### How to run
 
 ```bash
