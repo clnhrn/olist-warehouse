@@ -1,0 +1,7 @@
+*
+!pyproject.toml
+!uv.lock
+!contracts/
+!ingestion/
+**/__pycache__
+ingestion/Dockerfile
