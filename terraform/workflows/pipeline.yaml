@@ -1,20 +1,35 @@
 # The daily pipeline: the ingestion job, then the dbt job. Each step waits for
 # its job execution to finish, and a failed execution fails the workflow, so
-# dbt never runs after a failed load. Rendered by Terraform's templatefile,
-# so workflow expressions are written $${...}.
+# dbt never runs after a failed load. Both jobs get the workflow's execution
+# id as OLIST_RUN_ID, so their ops.pipeline_runs rows share a run id.
+# Rendered by Terraform's templatefile, so workflow expressions are written
+# $${...}.
 main:
   steps:
+    - init:
+        assign:
+          - run_id: $${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+          - run_overrides:
+              containerOverrides:
+                - env:
+                    - name: OLIST_RUN_ID
+                      value: $${run_id}
     - ingest:
         call: googleapis.run.v2.projects.locations.jobs.run
         args:
           name: projects/${project_id}/locations/${region}/jobs/${ingestion_job}
+          body:
+            overrides: $${run_overrides}
         result: ingestion_execution
     - transform:
         call: googleapis.run.v2.projects.locations.jobs.run
         args:
           name: projects/${project_id}/locations/${region}/jobs/${dbt_job}
+          body:
+            overrides: $${run_overrides}
         result: dbt_execution
     - done:
         return:
+          run_id: $${run_id}
           ingestion: $${ingestion_execution}
           dbt: $${dbt_execution}

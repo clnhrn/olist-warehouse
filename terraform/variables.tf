@@ -14,6 +14,12 @@ variable "developer_email" {
   type        = string
 }
 
+variable "alert_email" {
+  description = "Where pipeline failure alerts go. Defaults to developer_email."
+  type        = string
+  default     = null
+}
+
 variable "ingestion_image" {
   description = "Full image URI for the ingestion Cloud Run Job. Leave null until the image is pushed."
   type        = string

@@ -1,7 +1,8 @@
 # Datasets only. Bronze tables are created by the ingestion job from contracts/,
-# so each schema lives in one place.
+# so each schema lives in one place. ops holds the pipeline_runs audit log and
+# stored test failures, outside the medallion layers.
 locals {
-  layers = ["bronze", "silver", "gold"]
+  layers = ["bronze", "silver", "gold", "ops"]
 
   datasets = {
     for pair in setproduct(tolist(local.envs), local.layers) :
