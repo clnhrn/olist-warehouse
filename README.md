@@ -296,3 +296,62 @@ uv run dbt build --target dev --select models/gold+     # dev BigQuery, ADC as s
 ### Cost
 
 About zero. Building the 9 gold models in dev BigQuery scans about 185 MB (plus the tests), inside the free 1 TB of queries a month. The tables store about 115 MB, inside the free 10 GB.
+
+## Phase 5: Schema evolution
+
+Schema evolution means the source changes its columns and the pipeline keeps working. Here, a source change reaches the warehouse in one way only: a new contract version, merged through review. The full rules, with the reasons behind them, are in [docs/schema-evolution.md](docs/schema-evolution.md).
+
+### Batch 2
+
+Olist is a one-time snapshot, so batch 2 (`load_date=2016-02-01`) is simulated by [`scripts/make_batch2.py`](scripts/make_batch2.py): a full snapshot of all 9 files, the same data, with two source changes:
+
+- `products`: the source fixed its typos, so `product_name_lenght` and `product_description_lenght` become `..._length` (a rename).
+- `sellers`: the source now sends `seller_updated_at` (a new column, used by SCD2 in Phase 6).
+
+### Contract versions
+
+```
+contracts/v1/   all 9 tables, from the first batch
+contracts/v2/   products.yaml, sellers.yaml   (effective_from: 2016-02-01)
+```
+
+- A version folder holds only the tables that changed in it. Each contract has an `effective_from` load date, and each batch is checked against the version in force on its date. A rerun of batch 1 still uses v1.
+- A rename is declared with `renamed_from`. Loading the contracts compares each version with the one before it and refuses a breaking change: a removed column, an undeclared rename, a changed parse kind, a required column that becomes nullable, or a new primary key. This runs at job start and in `pytest`.
+- A file that does not match its version still fails the batch. An old-format products file dated after 2016-02-01 is rejected, as is an extra column nobody announced.
+
+### Each layer
+
+| Layer | New column | Rename |
+|---|---|---|
+| Bronze | Added to the table on every ingestion run, even one that skips. Old batches hold null. | Both names kept. Old batches fill `..._lenght`, new batches `..._length`. |
+| Silver | Selected by the model and added to the existing table by `on_schema_change: append_new_columns`, with no full refresh. | `coalesce(product_name_length, product_name_lenght)`. The silver column name does not change. |
+| Gold | Unchanged until its contract YAML changes. Enforced contracts fail on anything else. | Unchanged. |
+
+Two things the plan did not cover had to be fixed for this to work:
+
+- **Adding columns before loading, not only during the load.** A BigQuery load job can add columns (`ALLOW_FIELD_ADDITION`), but only when a batch with the new column loads. The scheduled run skips unchanged dates, so new dbt code could reach silver before any batch adds the column. Ingestion now adds every contract column to its bronze table first (adding columns only), and Parquet files are padded to the same columns.
+- **Silver incremental runs.** The deduplication macro used to `union all` the incoming rows with `existing.*`. The first run after a model gained a column failed on mismatched column counts, before dbt could add the column. It now keeps an incoming row only if silver has no newer row for its key, and reads only the key and lineage columns of the existing table. The existing unit tests still pass, and a new one covers the rename across versions.
+
+### Result
+
+On the full dataset, locally (DuckDB), in dev BigQuery, and in prod:
+
+- Bronze doubled (two full batches). Every silver and gold table kept its row count, and every silver row now comes from batch 2.
+- `silver_sellers.updated_at` is set for all 3,095 sellers. Lengths are set for 32,341 products, the same as before (610 products have none in the source).
+- Revenue is unchanged at BRL 13,494,400.74.
+- `check-rerun` left all 28 tables unchanged for batch 2, and for batch 1 rerun under v1 after v2 took effect.
+
+First prod run: the new images went out through `terraform apply` (image changes only). The workflow's ingestion step added the v2 columns to `bronze.products` and `bronze.sellers`, skipped batch 1, and loaded batch 2. dbt passed (175 pass, the same 3 warnings). All 28 tables match dev.
+
+### How to run
+
+```bash
+uv run python scripts/make_batch2.py     # data/raw -> data/raw-batch2
+uv run python -m ingestion land   --load-date 2016-02-01 --source-dir data/raw-batch2 --sink local
+uv run python -m ingestion ingest --all-dates --sink local
+cd dbt && uv run dbt build --target local
+```
+
+### Cost
+
+About zero. Batch 2 adds about 120 MB of CSV and its Parquet to each lake bucket, and doubles bronze in BigQuery to about 580 MB, inside the free 5 GB and 10 GB. Adding columns to a table changes only metadata and runs no query.
