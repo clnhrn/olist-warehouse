@@ -21,5 +21,8 @@ models:
   olist_warehouse:
     silver:
       +schema: silver
+      +materialized: incremental
+      +incremental_strategy: merge
+      +on_schema_change: append_new_columns
     gold:
       +schema: gold
