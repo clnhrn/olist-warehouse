@@ -1,0 +1,87 @@
+# CLAUDE.md: Olist Warehouse
+
+Portfolio data warehouse on the Olist Brazilian E-Commerce dataset (GCP, dbt, DuckDB, Polars), with a text-to-SQL agent on top.
+Full plan: `docs/implementation-plan.md`. Read it before starting any phase.
+
+## Architecture (medallion)
+
+- Bronze (`bronze`): raw data as loaded, append-only by batch, partitioned by `_load_date`.
+- Silver (`silver`): typed, renamed, deduplicated (latest row per key). dbt convention: staging.
+- Gold (`gold`): star schema (facts, dimensions, metrics). dbt convention: marts.
+- Dev copies: `dev_bronze`, `dev_silver`, `dev_gold`. CI and local work use dev only.
+- Flow: CSVs -> GCS (`load_date=YYYY-MM-DD/`) -> bronze -> silver -> gold -> agent (reads gold only).
+
+## Stack
+
+- GCP: BigQuery, Cloud Storage, Cloud Run Jobs, Cloud Workflows, Cloud Scheduler, Secret Manager.
+- Terraform for all infrastructure, with remote state in GCS.
+- dbt (BigQuery adapter in CI, DuckDB adapter locally).
+- Polars for ingestion. Pandas only if a library requires it.
+- Pandera for ingestion contracts. dbt tests and model contracts in the warehouse.
+- GitHub Actions for CI/CD, authenticated with Workload Identity Federation.
+
+## Commands
+
+Fill these in as the project takes shape.
+
+- One-time setup: see `setup/README.md` (install tools, bootstrap GCP, Kaggle token, download data)
+- Local dbt run (DuckDB): `dbt build --target local`
+- Dev dbt run (BigQuery dev): `dbt build --target dev`
+- Lint SQL: `sqlfluff lint dbt/models`
+- Python tests: `pytest`
+- Terraform: `terraform -chdir=terraform plan`
+
+## Rules (always follow)
+
+1. Never run `terraform apply`, `terraform destroy`, or any delete command without my explicit approval.
+2. Never write to prod datasets (`bronze`, `silver`, `gold`) from a local session. Use `dev_` datasets or DuckDB.
+3. Never create or commit service account key files. Use Workload Identity Federation for CI.
+4. Never put secrets, API keys, or project IDs with credentials in code, prompts, or logs. Use Secret Manager.
+5. Every BigQuery query written by the agent must set `maximum_bytes_billed` and run as the read-only service account.
+6. Confirm the fact table grain with me before building any fact model.
+7. Keep costs near zero: no Cloud Composer, `us-central1` for all resources (regional, not the `US` multi-region), small container images.
+
+## Conventions
+
+- Models: `silver_<source_table>` style names in `models/silver/`, `fact_*` and `dim_*` in `models/gold/`.
+- Every model has a description and column descriptions in its YAML file.
+- Every silver model has `unique` and `not_null` tests on its key. Gold models use enforced dbt model contracts.
+- Dimensions use surrogate keys. `order_id` stays on facts as a degenerate dimension.
+- SCD2 uses a dbt snapshot with the `timestamp` strategy and a business `updated_at` column, never run time.
+- Idempotency: rerunning the same `load_date` must not change row counts in any layer. Test this.
+- Add `_loaded_at`, `_load_date`, and `_source_file` to every bronze table.
+- Silver deduplication orders by `_load_date` then `_loaded_at`, never `_loaded_at` alone.
+- Bronze uses explicit schemas from `contracts/`, never BigQuery autodetect.
+- Landing (`landing/load_date=YYYY-MM-DD/`) holds raw CSVs and is never modified.
+- Local sessions use the dev service account (impersonation) or DuckDB. Run Python through `uv run`.
+- Use Polars `scan_csv` and lazy evaluation where possible.
+- Code style: type hints in Python, `ruff` for linting, small functions, no print statements (use logging).
+
+## Working style
+
+- Work one phase at a time, in the order of the plan. Use plan mode for Terraform, authentication, and SCD2.
+- Explain any technical term in one short sentence the first time it appears.
+- Keep answers short and direct.
+- Commit after each working step. Do not mix phases in one commit. Follow the commit rules below.
+- After each phase, update the README section for it and tick it off in `docs/progress.md`.
+- If something in the plan looks wrong or a better option exists, say so before building.
+
+## Commits (Conventional Commits)
+
+Format: `<type>(<scope>): <short summary>`
+
+- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+- Scopes: `ingestion`, `dbt`, `silver`, `gold`, `snapshots`, `terraform`, `agent`, `contracts`, `ci`, `docs`.
+- Summary: imperative mood, lowercase, no trailing period, 72 characters or fewer. Example: `feat(gold): add fact_orders accumulating snapshot`.
+- Add a body only when the why is not obvious. Wrap lines at 72 characters.
+- Breaking changes: add `!` after the scope (`feat(contracts)!: rename order_status column`) and a `BREAKING CHANGE:` footer.
+- One logical change per commit. Never mix infrastructure, dbt models, and docs in one commit.
+- Never commit to `main` directly. Use short-lived branches named `<type>/<short-description>`, for example `feat/dim-seller-scd2`.
+
+## Known Olist data issues
+
+- Duplicate rows in the geolocation table.
+- Product category names are in Portuguese. Use the translation table.
+- The product table has typos in column names (`product_name_lenght`, `product_description_lenght`).
+- Some orders have missing delivery timestamps.
+- Data is a one-time snapshot. Batch 2 (schema change and seller changes) is simulated.

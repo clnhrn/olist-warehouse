@@ -1,0 +1,71 @@
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+*credentials*.json
+.secrets/
+kaggle.json
+access_token
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Keep the lock file committed: .terraform.lock.hcl
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+target/
+dbt_packages/
+logs/
+profiles.yml
+# Committed profile must use env_var() only, with no secrets and no prod target for local use
+!dbt/profiles.yml
+
+# Data (never commit the dataset or local warehouses)
+data/
+*.csv
+# Small reference files that belong in the repo
+!dbt/seeds/*.csv
+!agent/evals/*.csv
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Claude Code (personal files only; keep .claude/settings.json committed)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
