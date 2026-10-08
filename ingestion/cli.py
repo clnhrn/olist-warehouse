@@ -24,7 +24,11 @@ logger = logging.getLogger("ingestion")
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="ingestion", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="ingestion",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
