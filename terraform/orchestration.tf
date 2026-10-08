@@ -65,9 +65,8 @@ resource "google_cloud_scheduler_job" "pipeline_daily" {
   schedule    = "0 6 * * *"
   time_zone   = "America/Sao_Paulo"
 
-  retry_config {
-    retry_count = 0
-  }
+  # No retry_config: the default is no retries, and the API omits a block
+  # with only defaults, so declaring it shows a diff on every plan.
 
   http_target {
     http_method = "POST"
