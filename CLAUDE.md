@@ -25,11 +25,17 @@ Full plan: `docs/implementation-plan.md`. Read it before starting any phase.
 Fill these in as the project takes shape.
 
 - One-time setup: see `setup/README.md` (install tools, bootstrap GCP, Kaggle token, download data)
-- Local dbt run (DuckDB): `dbt build --target local`
-- Dev dbt run (BigQuery dev): `dbt build --target dev`
-- Lint SQL: `sqlfluff lint dbt/models`
-- Python tests: `pytest`
-- Terraform: `terraform -chdir=terraform plan`
+- Install dependencies: `uv sync`
+- Ingest locally: `uv run python -m ingestion land --load-date D --sink local`, then `... ingest --load-date D --sink local`
+- Ingest to dev BigQuery: impersonate `sa-dev`, set `OLIST_PROJECT_ID`, then `... ingest --load-date D --env dev --sink gcs`
+- Ingest to prod: only via `gcloud run jobs execute ingestion --region=us-central1 --wait --args=ingest,--env,prod,--sink,gcs,--load-date,D`, with approval
+- Python tests: `uv run pytest`
+- Lint Python: `uv run ruff check .` and `uv run ruff format --check .`
+- Terraform: `terraform -chdir=terraform init -backend-config=backend.hcl`, then `plan -out=<name>.tfplan`; apply only with approval
+- Build the image: `docker build --platform=linux/amd64 --provenance=false --sbom=false -f ingestion/Dockerfile -t <repo>/ingestion:<git-sha> .`
+- Local dbt run (DuckDB): `dbt build --target local` (Phase 3)
+- Dev dbt run (BigQuery dev): `dbt build --target dev` (Phase 3)
+- Lint SQL: `sqlfluff lint dbt/models` (Phase 3)
 
 ## Rules (always follow)
 
