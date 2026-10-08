@@ -26,7 +26,7 @@ unit_tests:
     description: >
       Silver already holds the batch 2 row. Rerunning batch 1 loads it again
       with a newer _loaded_at, so the incremental filter picks it up; the
-      existing row must still win.
+      model must emit nothing for that key, so the merge keeps the batch 2 row.
     model: silver_sellers
     overrides:
       macros:
@@ -47,8 +47,7 @@ unit_tests:
               cast('2026-10-01 12:00:00' as timestamp) as _loaded_at,
               'batch-2' as _source_file
     expect:
-      rows:
-        - {seller_id: s1, zip_code_prefix: "13844", _source_file: batch-2}
+      rows: []
 
   - name: test_incremental_newer_batch_replaces_row
     description: A genuinely newer batch replaces the current silver row.
