@@ -1,0 +1,37 @@
+version: 2
+
+unit_tests:
+  - name: test_order_items_join_seller_version_valid_at_purchase
+    description: >
+      Seller s1 moved on 2018-01-01. The 2017 order gets the old version and
+      the 2018 order the new one, each with that version's location.
+    model: fact_order_items
+    given:
+      - input: ref('silver_order_items')
+        rows:
+          - {order_id: o1, order_item_id: 1, product_id: p1, seller_id: s1,
+             shipping_limit_at: "2017-06-05 00:00:00", price: 10.0, freight_value: 1.0}
+          - {order_id: o2, order_item_id: 1, product_id: p1, seller_id: s1,
+             shipping_limit_at: "2018-06-05 00:00:00", price: 20.0, freight_value: 2.0}
+      - input: ref('silver_orders')
+        rows:
+          - {order_id: o1, customer_id: c1, order_status: delivered, purchased_at: "2017-06-01 10:00:00"}
+          - {order_id: o2, customer_id: c1, order_status: delivered, purchased_at: "2018-06-01 10:00:00"}
+      - input: ref('silver_customers')
+        rows: []
+      - input: ref('dim_customer')
+        rows: []
+      - input: ref('dim_location')
+        rows: []
+      - input: ref('dim_product')
+        rows: []
+      - input: ref('dim_seller')
+        rows:
+          - {seller_key: s1-2016, seller_id: s1, location_key: loc-sp,
+             valid_from: "2016-01-01 00:00:00", valid_to: "2018-01-01 00:00:00", is_current: false}
+          - {seller_key: s1-2018, seller_id: s1, location_key: loc-rj,
+             valid_from: "2018-01-01 00:00:00", valid_to: null, is_current: true}
+    expect:
+      rows:
+        - {order_id: o1, seller_key: s1-2016, seller_location_key: loc-sp}
+        - {order_id: o2, seller_key: s1-2018, seller_location_key: loc-rj}

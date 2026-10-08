@@ -67,3 +67,24 @@ where
 {% macro nullif_blank(column) -%}
     nullif(trim({{ column }}), '')
 {%- endmacro %}
+
+
+{#- Sellers typed from bronze, shared by silver_sellers (latest row) and
+    silver_seller_versions (every version). Batches under contract v1 have
+    no seller_updated_at; they get the 2016-01-01 baseline, before the first
+    order, which is also what v2 sends for an unchanged seller. -#}
+{% macro typed_sellers(relation) -%}
+    select
+        trim(seller_id) as seller_id,
+        trim(seller_zip_code_prefix) as zip_code_prefix,
+        {{ normalize_text('seller_city') }} as city,
+        upper(trim(seller_state)) as state,
+        coalesce(
+            cast(seller_updated_at as timestamp),
+            cast('2016-01-01 00:00:00' as timestamp)
+        ) as updated_at,
+        _load_date,
+        _loaded_at,
+        _source_file
+    from {{ relation }}
+{%- endmacro %}

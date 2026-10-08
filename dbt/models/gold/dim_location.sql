@@ -1,4 +1,5 @@
--- One row per zip code prefix from geolocation, customers, and sellers.
+-- One row per zip code prefix from geolocation, customers, and sellers
+-- (all seller versions).
 -- City and state: the most common spelling in geolocation, falling back to
 -- customer and seller addresses for the zips geolocation lacks.
 with
@@ -27,7 +28,9 @@ addresses as (
         city,
         state,
         2 as source_priority
-    from {{ ref('silver_sellers') }}
+    -- Every seller address, past ones too, so old dim_seller versions
+    -- still find their location.
+    from {{ ref('silver_seller_versions') }}
 ),
 
 spellings as (

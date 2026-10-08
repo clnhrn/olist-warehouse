@@ -101,3 +101,69 @@ unit_tests:
         - {product_id: p1, name_length: 40, description_length: 300}
         - {product_id: p2, name_length: 50, description_length: 400}
         - {product_id: p3, name_length: 11, description_length: 110}
+
+  # SCD2 history, tested on silver_seller_versions.
+  - name: test_seller_versions_across_batches
+    description: >
+      Batch 1 (v1, no updated_at) and batch 2 (v2 baseline) carry the same
+      address and collapse into one baseline version; batch 3 moves the seller
+      on 2018-01-01. Two versions, the first ending where the second starts.
+    model: silver_seller_versions
+    given:
+      - input: source('bronze', 'sellers')
+        rows:
+          - {seller_id: s1, seller_zip_code_prefix: "01037", seller_city: campinas, seller_state: SP,
+             _load_date: "2016-01-01", _loaded_at: "2026-10-01 12:00:00", _source_file: batch-1}
+          - {seller_id: s1, seller_zip_code_prefix: "01037", seller_city: campinas, seller_state: SP,
+             seller_updated_at: "2016-01-01 00:00:00",
+             _load_date: "2016-02-01", _loaded_at: "2026-10-08 12:00:00", _source_file: batch-2}
+          - {seller_id: s1, seller_zip_code_prefix: "20010", seller_city: rio de janeiro, seller_state: RJ,
+             seller_updated_at: "2018-01-01 00:00:00",
+             _load_date: "2016-03-01", _loaded_at: "2026-10-09 12:00:00", _source_file: batch-3}
+    expect:
+      rows:
+        - {seller_id: s1, state: SP, valid_from: "2016-01-01 00:00:00", valid_to: "2018-01-01 00:00:00",
+           _source_file: batch-2}
+        - {seller_id: s1, state: RJ, valid_from: "2018-01-01 00:00:00", valid_to: null,
+           _source_file: batch-3}
+
+  - name: test_seller_versions_redelivered_version_latest_batch_wins
+    description: >
+      Two batches send the same updated_at with different addresses (a
+      correction). One version, with the address from the later batch, even
+      though the earlier batch was reloaded more recently.
+    model: silver_seller_versions
+    given:
+      - input: source('bronze', 'sellers')
+        rows:
+          - {seller_id: s1, seller_zip_code_prefix: "01037", seller_city: campinas, seller_state: SP,
+             seller_updated_at: "2016-01-01 00:00:00",
+             _load_date: "2016-02-01", _loaded_at: "2026-10-10 12:00:00", _source_file: batch-2-rerun}
+          - {seller_id: s1, seller_zip_code_prefix: "13844", seller_city: mogi guacu, seller_state: SP,
+             seller_updated_at: "2016-01-01 00:00:00",
+             _load_date: "2016-03-01", _loaded_at: "2026-10-09 12:00:00", _source_file: batch-3}
+    expect:
+      rows:
+        - {seller_id: s1, zip_code_prefix: "13844", valid_from: "2016-01-01 00:00:00", valid_to: null}
+
+  - name: test_seller_versions_late_batch_slots_in_by_updated_at
+    description: >
+      The 2017 change arrives after the 2018 one. Versions follow updated_at,
+      not batch order, so the ranges still chain 2016 -> 2017 -> 2018.
+    model: silver_seller_versions
+    given:
+      - input: source('bronze', 'sellers')
+        rows:
+          - {seller_id: s1, seller_zip_code_prefix: "01037", seller_city: campinas, seller_state: SP,
+             _load_date: "2016-01-01", _loaded_at: "2026-10-01 12:00:00", _source_file: batch-1}
+          - {seller_id: s1, seller_zip_code_prefix: "20010", seller_city: rio de janeiro, seller_state: RJ,
+             seller_updated_at: "2018-01-01 00:00:00",
+             _load_date: "2016-03-01", _loaded_at: "2026-10-09 12:00:00", _source_file: batch-3}
+          - {seller_id: s1, seller_zip_code_prefix: "30110", seller_city: belo horizonte, seller_state: MG,
+             seller_updated_at: "2017-01-01 00:00:00",
+             _load_date: "2016-04-01", _loaded_at: "2026-10-10 12:00:00", _source_file: batch-4}
+    expect:
+      rows:
+        - {state: SP, valid_from: "2016-01-01 00:00:00", valid_to: "2017-01-01 00:00:00"}
+        - {state: MG, valid_from: "2017-01-01 00:00:00", valid_to: "2018-01-01 00:00:00"}
+        - {state: RJ, valid_from: "2018-01-01 00:00:00", valid_to: null}

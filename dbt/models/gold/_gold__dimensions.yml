@@ -148,13 +148,25 @@ models:
 
   - name: dim_seller
     description: >
-      One row per seller per version (SCD2), plus the unknown member. Until
-      Phase 6 every seller has one version, valid from the 2016-01-01 baseline.
-      Facts join the version where valid_from <= purchased_at < valid_to.
+      One row per seller per version (SCD2), plus the unknown member. Built
+      from silver_seller_versions, which rebuilds the history from every
+      bronze batch. Each seller's first version starts at the 2016-01-01
+      baseline, before the first order. Facts join the version where
+      valid_from <= purchased_at < valid_to.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [seller_id, valid_from]
+      # A seller's versions chain without overlaps or gaps, so every
+      # purchase time matches exactly one version.
+      - dbt_utils.mutually_exclusive_ranges:
+          arguments:
+            lower_bound_column: valid_from
+            upper_bound_column: coalesce(valid_to, cast('9999-12-31' as timestamp))
+            partition_by: seller_id
+            gaps: not_allowed
+          config:
+            where: seller_id is not null
     columns:
       - name: seller_key
         description: Surrogate key, a hash of seller_id and valid_from. '-1' is unknown. Primary key.
