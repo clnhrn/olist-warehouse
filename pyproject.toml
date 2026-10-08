@@ -15,11 +15,12 @@ dependencies = [
 dbt = [
     "dbt-bigquery>=1.12.1",
     "dbt-core>=1.12.5",
-    "dbt-duckdb>=1.11.0",
 ]
-# dbt has its own group so its job image can install it alone (Phase 3).
-# dev includes it, so `uv sync` installs it locally and `--no-dev` leaves it out.
+# dbt: what the dbt job image installs (--only-group dbt), BigQuery only.
+# dev: local tools, plus dbt-duckdb for local runs and the dbt group, so
+# `uv sync` installs everything and the ingestion image (--no-dev) none of it.
 dev = [
+    "dbt-duckdb>=1.11.0",
     "pre-commit>=4.6.2",
     "pytest>=8.3",
     "ruff>=0.9",
@@ -46,3 +47,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "T20"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+# dbt-bigquery pulls google-cloud-aiplatform (~150 MB) for dbt Python models
+# only, and imports it lazily. This project has no Python models, so a
+# marker that never matches drops it and keeps the dbt image small.
+override-dependencies = ["google-cloud-aiplatform; sys_platform == 'never'"]
