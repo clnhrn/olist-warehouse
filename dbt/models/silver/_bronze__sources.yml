@@ -4,16 +4,14 @@ sources:
   - name: bronze
     description: >
       Raw Olist tables as loaded by the ingestion job: every source column as
-      STRING, append-only by batch, partitioned by _load_date. Locally, DuckDB
-      reads the same Parquet files from data/bronze/.
+      STRING, append-only by batch, partitioned by _load_date. Locally,
+      register_local_bronze exposes the Parquet in data/bronze/ as DuckDB views.
     schema: "{{ 'bronze' if target.name == 'prod' else 'dev_bronze' }}"
     config:
       loaded_at_field: _loaded_at
       # The dataset is a one-time snapshot, so freshness can only warn.
       freshness:
         warn_after: {count: 30, period: day}
-      meta:
-        external_location: "read_parquet('../data/bronze/{name}/load_date=*/data.parquet', hive_partitioning = false)"
     tables:
       - name: customers
         description: One row per order's customer, per batch. customer_unique_id identifies the person.

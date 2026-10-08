@@ -11,6 +11,9 @@ test-paths: ["tests"]
 
 clean-targets: ["target", "dbt_packages"]
 
+on-run-start:
+  - "{{ register_local_bronze() }}"
+
 flags:
   require_explicit_package_overrides_for_builtin_materializations: true
 
