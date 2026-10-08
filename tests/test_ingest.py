@@ -7,6 +7,7 @@ import pytest
 from ingestion.config import bronze_key, landed_dates, landing_key, quarantine_key
 from ingestion.ingest import ContractViolationError, ingest, ingest_landed
 from ingestion.land import LandingExistsError, land
+from ingestion.runs import LocalRunLog
 from ingestion.storage import LocalStorage
 from tests.conftest import FIRST_LOAD_DATE
 
@@ -154,3 +155,55 @@ def test_rerun_replaces_quarantine(lake, two_tables, source_dir):
     assert skipped.skipped and skipped.quarantined["sellers"] == 1
     assert _quarantine(lake, "sellers").height == 1
     assert _bronze(lake, "sellers").height == 199
+
+
+def _run_rows(run_log: LocalRunLog) -> list[dict]:
+    return [json.loads(line) for line in run_log.path.read_text().splitlines()]
+
+
+def test_run_log_records_each_table_loaded_then_skipped(lake, two_tables, source_dir, tmp_path):
+    bad = {7: f"{7:032x},1037,campinas,SP"}
+    (source_dir / "olist_sellers_dataset.csv").write_text(_many_sellers(200, bad))
+    land(lake, two_tables.for_date(LOAD_DATE), source_dir, LOAD_DATE)
+    run_log = LocalRunLog(tmp_path / "runs", "run-1")
+
+    ingest(lake, None, two_tables, LOAD_DATE, run_log=run_log)
+    ingest(lake, None, two_tables, LOAD_DATE, run_log=run_log)
+
+    rows = {(r["object"], r["status"]): r for r in _run_rows(run_log)}
+    assert set(rows) == {
+        ("sellers", "loaded"),
+        ("orders", "loaded"),
+        ("sellers", "skipped"),
+        ("orders", "skipped"),
+    }
+    loaded = rows["sellers", "loaded"]
+    assert (loaded["rows_in"], loaded["rows_out"], loaded["rows_quarantined"]) == (200, 199, 1)
+    assert loaded["run_id"] == "run-1"
+    assert (loaded["component"], loaded["layer"], loaded["load_date"]) == (
+        "ingestion",
+        "bronze",
+        "2016-01-01",
+    )
+    assert rows["sellers", "skipped"]["rows_out"] == 199
+
+
+def test_run_log_records_failure_before_raising(lake, two_tables, source_dir, tmp_path):
+    path = source_dir / "olist_sellers_dataset.csv"
+    path.write_text(path.read_text().replace('"01037"', '"1037"'))
+    land(lake, two_tables.for_date(LOAD_DATE), source_dir, LOAD_DATE)
+    run_log = LocalRunLog(tmp_path / "runs", "run-2")
+
+    with pytest.raises(ContractViolationError):
+        ingest(lake, None, two_tables, LOAD_DATE, run_log=run_log)
+
+    failed = [r for r in _run_rows(run_log) if r["status"] == "failed"]
+    assert [r["object"] for r in failed] == ["sellers"]
+    assert "violates contract" in failed[0]["message"]
+
+
+def test_run_log_records_failure_without_landing(lake, two_tables, tmp_path):
+    run_log = LocalRunLog(tmp_path / "runs", "run-3")
+    with pytest.raises(FileNotFoundError):
+        ingest(lake, None, two_tables, LOAD_DATE, run_log=run_log)
+    assert [(r["object"], r["status"]) for r in _run_rows(run_log)] == [("*", "failed")]

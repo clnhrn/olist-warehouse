@@ -22,6 +22,7 @@ from ingestion.config import (
     LOCAL_DUCKDB_PATH,
     LOCAL_LAKE_DIR,
     LOCAL_RAW_DIR,
+    LOCAL_RUNS_DIR,
     Env,
     Sink,
     gcp_settings,
@@ -35,6 +36,7 @@ from ingestion.idempotency import (
 )
 from ingestion.ingest import ContractViolationError, ingest, ingest_landed
 from ingestion.land import LandingExistsError, land
+from ingestion.runs import BigQueryRunLog, LocalRunLog, RunLog, new_run_id
 from ingestion.storage import GcsStorage, LocalStorage, Storage
 from ingestion.warehouse import BigQueryWarehouse
 
@@ -93,6 +95,14 @@ def _build(sink: Sink, env: Env) -> tuple[Storage, BigQueryWarehouse | None]:
     return GcsStorage(settings.lake_bucket, settings.project_id), BigQueryWarehouse(settings)
 
 
+def _run_log(sink: Sink, env: Env) -> RunLog:
+    run_id = new_run_id()
+    logger.info("Run id %s", run_id)
+    if sink is Sink.LOCAL:
+        return LocalRunLog(LOCAL_RUNS_DIR, run_id)
+    return BigQueryRunLog(gcp_settings(env), run_id)
+
+
 def _counter(warehouse: BigQueryWarehouse | None, dbt: bool) -> Callable[[], dict[str, int]]:
     layers = DBT_LAYERS if dbt else ()
     if warehouse is None:
@@ -103,11 +113,13 @@ def _counter(warehouse: BigQueryWarehouse | None, dbt: bool) -> Callable[[], dic
     return lambda: warehouse.row_counts(("bronze", *layers))
 
 
-def _rerun_step(args: argparse.Namespace, storage, warehouse, registry) -> Callable[[], None]:
+def _rerun_step(
+    args: argparse.Namespace, storage, warehouse, registry, run_log: RunLog
+) -> Callable[[], None]:
     target = "local" if warehouse is None else "dev"
 
     def step() -> None:
-        ingest(storage, warehouse, registry, args.load_date, force=True)
+        ingest(storage, warehouse, registry, args.load_date, force=True, run_log=run_log)
         if not args.no_dbt:
             run_dbt_build(DBT_PROJECT_DIR, target)
 
@@ -128,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
             land(storage, registry.for_date(args.load_date), args.source_dir, args.load_date)
         elif args.command == "check-rerun":
             changes = check_rerun(
-                run=_rerun_step(args, storage, warehouse, registry),
+                run=_rerun_step(args, storage, warehouse, registry, _run_log(args.sink, args.env)),
                 count=_counter(warehouse, dbt=not args.no_dbt),
             )
             if changes:
@@ -136,12 +148,20 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             logger.info("Rerun of %s left every row count unchanged.", args.load_date)
         else:
+            run_log = _run_log(args.sink, args.env)
             if args.all_dates:
-                results = ingest_landed(storage, warehouse, registry, force=args.force)
+                results = ingest_landed(
+                    storage, warehouse, registry, force=args.force, run_log=run_log
+                )
             else:
                 results = {
                     args.load_date: ingest(
-                        storage, warehouse, registry, args.load_date, force=args.force
+                        storage,
+                        warehouse,
+                        registry,
+                        args.load_date,
+                        force=args.force,
+                        run_log=run_log,
                     )
                 }
             for load_date, result in results.items():

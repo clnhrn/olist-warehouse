@@ -20,6 +20,7 @@ import polars as pl
 from contracts.loader import ContractRegistry, TableContract, bronze_schema, pandera_schema
 from ingestion.config import bronze_key, landed_dates, landing_key, quarantine_key
 from ingestion.manifest import Manifest, TableEntry, read_manifest, write_manifest
+from ingestion.runs import RunLog, RunRecord
 from ingestion.storage import Storage
 from ingestion.warehouse import BigQueryWarehouse
 
@@ -206,8 +207,48 @@ def ingest(
     registry: ContractRegistry,
     load_date: date,
     force: bool = False,
+    run_log: RunLog | None = None,
 ) -> IngestResult:
-    """Load one date, each table validated against the contract in force on that date."""
+    """Load one date, each table validated against the contract in force on that date.
+
+    Every table gets a pipeline_runs row (loaded, skipped, or failed), written
+    even when the load fails, before the error propagates.
+    """
+    run_id = run_log.run_id if run_log else ""
+    records: list[RunRecord] = []
+    started_at = datetime.now(UTC)
+    try:
+        return _ingest_date(storage, warehouse, registry, load_date, force, run_id, records)
+    except Exception as exc:
+        if not any(r.status == "failed" for r in records):
+            # Failed before any table started (missing files, no contract).
+            records.append(
+                RunRecord(
+                    run_id,
+                    "*",
+                    load_date,
+                    started_at,
+                    datetime.now(UTC),
+                    "failed",
+                    message=str(exc),
+                )
+            )
+        raise
+    finally:
+        if run_log:
+            run_log.write(records)
+
+
+def _ingest_date(
+    storage: Storage,
+    warehouse: BigQueryWarehouse | None,
+    registry: ContractRegistry,
+    load_date: date,
+    force: bool,
+    run_id: str,
+    records: list[RunRecord],
+) -> IngestResult:
+    started_at = datetime.now(UTC)
     contracts = registry.for_date(load_date)
     if warehouse is not None:
         sync_bronze_schemas(warehouse, registry)
@@ -227,6 +268,20 @@ def ingest(
     manifest = read_manifest(storage, load_date)
     if manifest and manifest.matches(landing_md5s, versions) and not force:
         logger.info("Load date %s already loaded from identical files, skipping.", load_date)
+        ended_at = datetime.now(UTC)
+        records.extend(
+            RunRecord(
+                run_id,
+                t,
+                load_date,
+                started_at,
+                ended_at,
+                "skipped",
+                rows_out=manifest.tables[t].rows,
+                rows_quarantined=manifest.tables[t].rows_quarantined,
+            )
+            for t in contracts
+        )
         return IngestResult(
             skipped=True,
             rows={t: manifest.tables[t].rows for t in contracts},
@@ -239,7 +294,35 @@ def ingest(
     quarantined: dict[str, int] = {}
     for table, contract in contracts.items():
         bronze_columns = registry.bronze_columns(table)
-        load = _ingest_table(storage, warehouse, contract, bronze_columns, load_date, loaded_at)
+        table_started_at = datetime.now(UTC)
+        try:
+            load = _ingest_table(storage, warehouse, contract, bronze_columns, load_date, loaded_at)
+        except Exception as exc:
+            records.append(
+                RunRecord(
+                    run_id,
+                    table,
+                    load_date,
+                    table_started_at,
+                    datetime.now(UTC),
+                    "failed",
+                    message=str(exc),
+                )
+            )
+            raise
+        records.append(
+            RunRecord(
+                run_id,
+                table,
+                load_date,
+                table_started_at,
+                datetime.now(UTC),
+                "loaded",
+                rows_in=load.rows_in,
+                rows_out=load.rows_out,
+                rows_quarantined=load.rows_quarantined,
+            )
+        )
         rows[table] = load.rows_out
         quarantined[table] = load.rows_quarantined
         manifest.tables[table] = TableEntry(
@@ -259,9 +342,10 @@ def ingest_landed(
     warehouse: BigQueryWarehouse | None,
     registry: ContractRegistry,
     force: bool = False,
+    run_log: RunLog | None = None,
 ) -> dict[date, IngestResult]:
     """Ingest every landed date, oldest first. The scheduled run: unchanged dates skip."""
     dates = landed_dates(storage)
     if not dates:
         logger.info("No load dates in landing, nothing to ingest.")
-    return {d: ingest(storage, warehouse, registry, d, force=force) for d in dates}
+    return {d: ingest(storage, warehouse, registry, d, force=force, run_log=run_log) for d in dates}

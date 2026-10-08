@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_RAW_DIR = REPO_ROOT / "data" / "raw"
 LOCAL_LAKE_DIR = REPO_ROOT / "data"
 LOCAL_DUCKDB_PATH = REPO_ROOT / "data" / "warehouse.duckdb"
+# pipeline_runs rows from local ingestion; dbt copies them into DuckDB.
+LOCAL_RUNS_DIR = REPO_ROOT / "data" / "_runs"
 DBT_PROJECT_DIR = REPO_ROOT / "dbt"
 DEFAULT_REGION = "us-central1"
 
