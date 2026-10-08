@@ -62,13 +62,51 @@ models:
       - name: updated_at
         description: >
           When the source last changed the seller record (Brazil local time).
-          Sent from contract v2 (batch 2016-02-01); null if the latest row came
-          from an earlier batch.
+          Sent from contract v2 (batch 2016-02-01); rows from earlier batches
+          get the 2016-01-01 baseline.
+        data_tests: [not_null]
       - name: _load_date
         description: Batch the row came from. Deduplication orders by this first.
         data_tests: [not_null]
       - name: _loaded_at
         description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_seller_versions
+    description: >
+      One row per seller per version (SCD2 history), rebuilt from every bronze
+      batch on each run. A version starts at the source's seller_updated_at
+      and ends where the next one starts. Feeds dim_seller.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [seller_id, valid_from]
+    columns:
+      - name: seller_id
+        description: Seller key.
+        data_tests: [not_null]
+      - name: zip_code_prefix
+        description: Zip code prefix of this version's address.
+        data_tests: [not_null]
+      - name: city
+        description: City of this version's address, lowercased, trimmed, without accents.
+        data_tests: [not_null]
+      - name: state
+        description: Two-letter state code of this version's address.
+        data_tests: [not_null]
+      - name: valid_from
+        description: Start of the version (inclusive), the source's updated_at.
+        data_tests: [not_null]
+      - name: valid_to
+        description: End of the version (exclusive), the next version's start. Null for the current version.
+      - name: _load_date
+        description: Latest batch that delivered this version.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded that batch.
         data_tests: [not_null]
       - name: _source_file
         description: Landing file URI the row was read from.
