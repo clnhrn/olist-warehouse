@@ -1,12 +1,15 @@
 # Bootstrap APIs (serviceusage, cloudresourcemanager, storage) are enabled by
-# setup/bootstrap-gcp.sh. Scheduler, Workflows, and STS are added in later phases.
+# setup/bootstrap-gcp.sh. STS (for Workload Identity Federation) comes in Phase 8.
 locals {
   apis = [
     "artifactregistry.googleapis.com",
     "bigquery.googleapis.com",
+    "cloudscheduler.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "run.googleapis.com",
+    "workflowexecutions.googleapis.com",
+    "workflows.googleapis.com",
   ]
 }
 

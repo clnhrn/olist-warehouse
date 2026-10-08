@@ -1,0 +1,35 @@
+[sqlfluff]
+templater = dbt
+dialect = duckdb
+max_line_length = 100
+# The dbt templater compiles each model against the local (DuckDB) target,
+# which needs no credentials, so the dialect is duckdb too.
+# structure.using: USING is clearer for same-named keys (dedup macro).
+# structure.column_order: silver keeps lineage columns last on purpose, so
+# every silver table has the same layout.
+exclude_rules = structure.using, structure.column_order
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = .
+target = local
+
+[sqlfluff:indentation]
+tab_space_size = 4
+indented_joins = false
+indented_using_on = true
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower

@@ -1,0 +1,380 @@
+version: 2
+
+# Timestamps are Brazil local time as given by the source (no zone); they are
+# stored as TIMESTAMP so DuckDB and BigQuery match.
+
+models:
+  - name: silver_customers
+    description: >
+      One row per order's customer (customer_id is per order). customer_unique_id
+      identifies the person, who can appear under several customer_ids.
+    columns:
+      - name: customer_id
+        description: Customer key for one order. Primary key.
+        data_tests: [unique, not_null]
+      - name: customer_unique_id
+        description: Identifies the person across orders.
+        data_tests: [not_null]
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code, kept as text for leading zeros.
+        data_tests: [not_null]
+      - name: city
+        description: City, lowercased, trimmed, without accents.
+        data_tests: [not_null]
+      - name: state
+        description: Two-letter state code.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA,
+                         PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO]
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_sellers
+    description: One row per seller, with the address from the latest batch.
+    columns:
+      - name: seller_id
+        description: Seller key. Primary key.
+        data_tests: [unique, not_null]
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code, kept as text for leading zeros.
+        data_tests: [not_null]
+      - name: city
+        description: City, lowercased, trimmed, without accents.
+        data_tests: [not_null]
+      - name: state
+        description: Two-letter state code.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA,
+                         PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO]
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_orders
+    description: >
+      One row per order with its lifecycle timestamps. Milestones that have not
+      happened are null; 8 delivered orders have no delivery date.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "not (order_status = 'delivered' and delivered_at is null)"
+          config:
+            severity: warn
+    columns:
+      - name: order_id
+        description: Order key. Primary key.
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: The order's customer.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_customers')
+                field: customer_id
+      - name: order_status
+        description: Current status, lowercased.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [approved, canceled, created, delivered, invoiced,
+                         processing, shipped, unavailable]
+      - name: purchased_at
+        description: When the order was placed (Brazil local time).
+        data_tests: [not_null]
+      - name: approved_at
+        description: When payment was approved. Null if not yet approved.
+      - name: shipped_at
+        description: When the order was handed to the carrier. Null if not shipped.
+      - name: delivered_at
+        description: When the customer received the order. Null if not delivered.
+      - name: estimated_delivery_at
+        description: Delivery date promised at purchase (midnight).
+        data_tests: [not_null]
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_order_items
+    description: >
+      One row per item within an order. An order repeats a product on several
+      rows when it bought several units.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, order_item_id]
+    columns:
+      - name: order_id
+        description: The order. Part of the primary key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_orders')
+                field: order_id
+      - name: order_item_id
+        description: Item number within the order, from 1. Part of the primary key.
+        data_tests: [not_null]
+      - name: product_id
+        description: The product sold.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_products')
+                field: product_id
+      - name: seller_id
+        description: The seller who sold the item.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_sellers')
+                field: seller_id
+      - name: shipping_limit_at
+        description: Deadline for the seller to hand the item to the carrier.
+        data_tests: [not_null]
+      - name: price
+        description: Item price in BRL.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "> 0"
+      - name: freight_value
+        description: Freight charged for this item in BRL.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_order_payments
+    description: One row per payment record. An order can be paid in several records.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [order_id, payment_sequential]
+    columns:
+      - name: order_id
+        description: The order. Part of the primary key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_orders')
+                field: order_id
+      - name: payment_sequential
+        description: Payment number within the order, from 1. Part of the primary key.
+        data_tests: [not_null]
+      - name: payment_type
+        description: Payment method. 3 records are not_defined.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [boleto, credit_card, debit_card, not_defined, voucher]
+      - name: payment_installments
+        description: Number of installments. 2 records have 0.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 1"
+              config:
+                severity: warn
+      - name: payment_value
+        description: Amount paid in BRL.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_order_reviews
+    description: >
+      One row per review per order. A review_id can cover several orders, so the
+      key is (review_id, order_id).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [review_id, order_id]
+    columns:
+      - name: review_id
+        description: The review. Part of the primary key.
+        data_tests: [not_null]
+      - name: order_id
+        description: The reviewed order. Part of the primary key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_orders')
+                field: order_id
+      - name: review_score
+        description: Score from 1 to 5.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+      - name: review_comment_title
+        description: Review title in Portuguese. Null when blank.
+      - name: review_comment_message
+        description: Review text in Portuguese, may contain line breaks. Null when blank.
+      - name: review_created_at
+        description: When the satisfaction survey was sent.
+        data_tests: [not_null]
+      - name: review_answered_at
+        description: When the customer answered it.
+        data_tests: [not_null]
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_products
+    description: >
+      One row per product. The source "lenght" typos are fixed here. Category
+      names stay in Portuguese; gold adds English names from
+      silver_product_category_translation.
+    columns:
+      - name: product_id
+        description: Product key. Primary key.
+        data_tests: [unique, not_null]
+      - name: category_name_pt
+        description: Category in Portuguese. Null for 610 products.
+        data_tests:
+          # 2 categories (13 products) are missing from the translation table;
+          # gold fills them from a seed.
+          - relationships:
+              arguments:
+                to: ref('silver_product_category_translation')
+                field: category_name_pt
+              config:
+                severity: warn
+      - name: name_length
+        description: Characters in the product name.
+      - name: description_length
+        description: Characters in the product description.
+      - name: photos_qty
+        description: Number of product photos.
+      - name: weight_g
+        description: Weight in grams.
+      - name: length_cm
+        description: Length in centimeters.
+      - name: height_cm
+        description: Height in centimeters.
+      - name: width_cm
+        description: Width in centimeters.
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_product_category_translation
+    description: Portuguese to English product category names.
+    columns:
+      - name: category_name_pt
+        description: Category in Portuguese. Primary key.
+        data_tests: [unique, not_null]
+      - name: category_name_en
+        description: Category in English.
+        data_tests: [not_null]
+      - name: _load_date
+        description: Batch the row came from. Deduplication orders by this first.
+        data_tests: [not_null]
+      - name: _loaded_at
+        description: When the ingestion job loaded the batch. Tie-breaker after _load_date.
+        data_tests: [not_null]
+      - name: _source_file
+        description: Landing file URI the row was read from.
+        data_tests: [not_null]
+
+  - name: silver_geolocation
+    description: >
+      Zip code prefix coordinates from the latest batch, exact duplicate rows
+      removed. A zip still has many points and city spellings; gold picks one
+      per zip.
+    columns:
+      - name: geolocation_key
+        description: Hash of all source columns. Primary key.
+        data_tests: [unique, not_null]
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code.
+        data_tests: [not_null]
+      - name: latitude
+        description: Latitude in degrees.
+        data_tests: [not_null]
+      - name: longitude
+        description: Longitude in degrees.
+        data_tests: [not_null]
+      - name: city
+        description: City, lowercased, trimmed, without accents.
+        data_tests: [not_null]
+      - name: state
+        description: Two-letter state code.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA,
+                         PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO]
+      - name: _load_date
+        description: Batch the rows came from (always the latest).
+        data_tests: [not_null]

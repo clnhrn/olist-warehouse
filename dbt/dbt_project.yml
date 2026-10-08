@@ -1,0 +1,28 @@
+name: olist_warehouse
+version: "1.0.0"
+profile: olist_warehouse
+require-dbt-version: [">=1.12.0", "<2.0.0"]
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+
+clean-targets: ["target", "dbt_packages"]
+
+on-run-start:
+  - "{{ register_local_bronze() }}"
+
+flags:
+  require_explicit_package_overrides_for_builtin_materializations: true
+
+models:
+  olist_warehouse:
+    silver:
+      +schema: silver
+      +materialized: incremental
+      +incremental_strategy: merge
+      +on_schema_change: append_new_columns
+    gold:
+      +schema: gold

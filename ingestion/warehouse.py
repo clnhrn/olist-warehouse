@@ -54,10 +54,13 @@ class BigQueryWarehouse:
         logger.info("Loaded %s rows into %s", job.output_rows, destination)
         return int(job.output_rows or 0)
 
-    def row_counts(self) -> dict[str, int]:
-        """Rows per bronze table, from table metadata (no query, nothing billed)."""
-        dataset = f"{self.settings.project_id}.{self.settings.bronze_dataset}"
-        return {
-            f"bronze.{item.table_id}": int(self.client.get_table(item.reference).num_rows or 0)
-            for item in self.client.list_tables(dataset)
-        }
+    def row_counts(self, layers: tuple[str, ...] = ("bronze",)) -> dict[str, int]:
+        """Rows per table in each layer's dataset, from metadata (no query, nothing billed)."""
+        counts: dict[str, int] = {}
+        for layer in layers:
+            dataset = f"{self.settings.project_id}.{self.settings.dataset(layer)}"
+            for item in self.client.list_tables(dataset):
+                if item.table_type == "TABLE":
+                    table = self.client.get_table(item.reference)
+                    counts[f"{layer}.{item.table_id}"] = int(table.num_rows or 0)
+        return counts

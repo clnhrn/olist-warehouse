@@ -1,9 +1,16 @@
 from datetime import date
 
+import duckdb
 import pytest
 
 from ingestion.cli import main
-from ingestion.idempotency import CountChange, check_rerun, diff_counts, local_bronze_counts
+from ingestion.idempotency import (
+    CountChange,
+    check_rerun,
+    diff_counts,
+    local_bronze_counts,
+    local_warehouse_counts,
+)
 from ingestion.ingest import ingest
 from ingestion.land import land
 from ingestion.storage import LocalStorage
@@ -42,3 +49,15 @@ def test_diff_reports_added_and_missing_tables():
 
 def test_check_rerun_refuses_prod():
     assert main(["check-rerun", "--load-date", "2016-01-01", "--env", "prod"]) == 1
+
+
+def test_local_warehouse_counts_reads_layer_tables_only(tmp_path):
+    path = tmp_path / "warehouse.duckdb"
+    with duckdb.connect(str(path)) as con:
+        con.execute("create schema dev_silver; create schema dev_bronze")
+        con.execute("create table dev_silver.silver_orders as select * from range(3)")
+        con.execute("create view dev_silver.orders_view as select 1")
+        con.execute("create table dev_bronze.orders as select 1")
+
+    assert local_warehouse_counts(path) == {"silver.silver_orders": 3}
+    assert local_warehouse_counts(tmp_path / "missing.duckdb") == {}

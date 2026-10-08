@@ -19,3 +19,9 @@ variable "ingestion_image" {
   type        = string
   default     = null
 }
+
+variable "dbt_image" {
+  description = "Full image URI for the dbt Cloud Run Job. Leave null until the image is pushed."
+  type        = string
+  default     = null
+}

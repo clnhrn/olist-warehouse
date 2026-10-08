@@ -1,0 +1,20 @@
+# The daily pipeline: the ingestion job, then the dbt job. Each step waits for
+# its job execution to finish, and a failed execution fails the workflow, so
+# dbt never runs after a failed load. Rendered by Terraform's templatefile,
+# so workflow expressions are written $${...}.
+main:
+  steps:
+    - ingest:
+        call: googleapis.run.v2.projects.locations.jobs.run
+        args:
+          name: projects/${project_id}/locations/${region}/jobs/${ingestion_job}
+        result: ingestion_execution
+    - transform:
+        call: googleapis.run.v2.projects.locations.jobs.run
+        args:
+          name: projects/${project_id}/locations/${region}/jobs/${dbt_job}
+        result: dbt_execution
+    - done:
+        return:
+          ingestion: $${ingestion_execution}
+          dbt: $${dbt_execution}
