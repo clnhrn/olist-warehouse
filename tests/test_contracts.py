@@ -1,4 +1,5 @@
 import io
+from datetime import date
 
 import polars as pl
 import pytest
@@ -85,3 +86,14 @@ def test_real_data_sample_passes(contracts, real_raw_dir):
         # Reviews contain quoted newlines; reading lines may cut a record, so parse leniently.
         df = pl.read_csv(io.BytesIO(sample), infer_schema=False, truncate_ragged_lines=True)
         validate(df.drop_nulls(subset=[contract.columns[0].name]), contract)
+
+
+def test_v2_fixes_the_product_typos_and_adds_seller_updated_at(registry):
+    batch_2 = registry.for_date(date(2016, 2, 1))
+    assert batch_2["products"].version == 2
+    assert "product_name_length" in batch_2["products"].column_names
+    assert "seller_updated_at" in batch_2["sellers"].column_names
+    assert batch_2["orders"].version == 1
+    # Bronze keeps both spellings: old batches fill one, new batches the other.
+    products = registry.bronze_columns("products")
+    assert {"product_name_lenght", "product_name_length"} <= set(products)
