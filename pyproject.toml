@@ -20,8 +20,11 @@ dbt = [
 # dbt has its own group so its job image can install it alone (Phase 3).
 # dev includes it, so `uv sync` installs it locally and `--no-dev` leaves it out.
 dev = [
+    "pre-commit>=4.6.2",
     "pytest>=8.3",
     "ruff>=0.9",
+    "sqlfluff>=4.4.0",
+    "sqlfluff-templater-dbt>=4.4.0",
     {include-group = "dbt"},
 ]
 
