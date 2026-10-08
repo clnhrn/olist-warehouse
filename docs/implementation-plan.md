@@ -128,18 +128,19 @@ olist-warehouse/
 - Package `dbt build` as a second Cloud Run Job, then add the Cloud Workflow (ingestion job, then dbt job) and the Cloud Scheduler trigger. The trigger is safe to run daily because ingestion does nothing when there is no new batch.
 
 ### Phase 4: Gold layer, star schema (3 to 4 days)
-Suggested model (confirm grain before building). All of these live in the `gold` dataset:
+Grains confirmed on 2026-10-08. Full design, with columns, keys, and the data findings behind each choice: [star-schema-design.md](star-schema-design.md). All of these live in the `gold` dataset:
 
 | Table | Type | Grain |
 |---|---|---|
-| `fact_order_items` | Fact | One row per order item |
-| `fact_orders` | Fact (accumulating snapshot) | One row per order, with purchase, approval, shipping, and delivery dates |
-| `fact_payments` | Fact | One row per payment record |
-| `fact_reviews` | Fact | One row per review |
-| `dim_customer` | Dimension | One row per customer |
+| `fact_order_items` | Fact | One row per order item, `(order_id, order_item_id)` |
+| `fact_orders` | Fact (accumulating snapshot) | One row per order, including orders with no items, with purchase, approval, shipping, and delivery dates |
+| `fact_payments` | Fact | One row per payment record, `(order_id, payment_sequential)` |
+| `fact_reviews` | Fact | One row per review per order, `(review_id, order_id)` |
+| `dim_customer` | Dimension | One row per person (`customer_unique_id`) |
+| `dim_location` | Dimension | One row per zip code prefix, used for customer and seller location |
 | `dim_seller` | Dimension (SCD2) | One row per seller per version |
 | `dim_product` | Dimension | One row per product |
-| `dim_date` | Dimension | One row per day |
+| `dim_date` | Dimension | One row per day, 2016-01-01 to 2020-12-31 |
 
 - Use surrogate keys (generated IDs, not the source IDs) in dimensions. Keep `order_id` on the facts as a degenerate dimension (an identifier with no dimension table of its own).
 - Put delivery measures (delivery days, delay vs estimate) on `fact_orders`, so they are not repeated for every item in an order. Item-level measures (item revenue, freight share) stay on `fact_order_items`.

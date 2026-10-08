@@ -2,7 +2,7 @@
 
 Phases from [implementation-plan.md](implementation-plan.md).
 
-- [x] **Phase 0: Setup.** GCP project with a budget alert, Terraform state bucket, tools installed in WSL, dataset downloaded and profiled (with Polars). Still open: the GitHub repo (needed by Phase 8) and the written grain and star schema design (needed before Phase 4).
+- [x] **Phase 0: Setup.** GCP project with a budget alert, Terraform state bucket, tools installed in WSL, dataset downloaded and profiled (with Polars). Grain and star schema design written up in [star-schema-design.md](star-schema-design.md). Still open: the GitHub repo (needed by Phase 8).
 - [x] **Phase 1: Ingestion.** Data contracts, `land` and `ingest` commands, Terraform foundation, Cloud Run Job. Loaded the full dataset into `dev_bronze` and `bronze`; counts match the source.
 - [ ] Phase 2: Idempotency
 - [ ] Phase 3: Silver models in dbt
