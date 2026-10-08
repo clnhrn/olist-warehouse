@@ -1,0 +1,76 @@
+version: 2
+
+# Deduplication rules, tested on silver_sellers. Every silver model with a key
+# uses the same macros (bronze_since_last_run, latest_row_per_key).
+unit_tests:
+  - name: test_full_build_orders_by_load_date_before_loaded_at
+    description: >
+      Batch 1 was rerun after batch 2 was loaded, so it has the newer
+      _loaded_at. The batch 2 row must still win.
+    model: silver_sellers
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('bronze', 'sellers')
+        rows:
+          - {seller_id: s1, seller_zip_code_prefix: "01037", seller_city: campinas, seller_state: SP,
+             _load_date: "2016-01-01", _loaded_at: "2026-10-08 12:00:00", _source_file: batch-1-rerun}
+          - {seller_id: s1, seller_zip_code_prefix: "13844", seller_city: mogi guacu, seller_state: SP,
+             _load_date: "2016-02-01", _loaded_at: "2026-10-01 12:00:00", _source_file: batch-2}
+    expect:
+      rows:
+        - {seller_id: s1, zip_code_prefix: "13844", _source_file: batch-2}
+
+  - name: test_incremental_rerun_of_old_batch_keeps_newer_row
+    description: >
+      Silver already holds the batch 2 row. Rerunning batch 1 loads it again
+      with a newer _loaded_at, so the incremental filter picks it up; the
+      existing row must still win.
+    model: silver_sellers
+    overrides:
+      macros:
+        is_incremental: true
+    given:
+      - input: source('bronze', 'sellers')
+        rows:
+          - {seller_id: s1, seller_zip_code_prefix: "01037", seller_city: campinas, seller_state: SP,
+             _load_date: "2016-01-01", _loaded_at: "2026-10-08 12:00:00", _source_file: batch-1-rerun}
+      - input: this
+        # SQL format lists every column, so dbt does not need the table to
+        # exist (a fresh dev or CI dataset has none yet).
+        format: sql
+        rows: |
+          select
+              's1' as seller_id, '13844' as zip_code_prefix, 'mogi guacu' as city, 'SP' as state,
+              cast('2016-02-01' as date) as _load_date,
+              cast('2026-10-01 12:00:00' as timestamp) as _loaded_at,
+              'batch-2' as _source_file
+    expect:
+      rows:
+        - {seller_id: s1, zip_code_prefix: "13844", _source_file: batch-2}
+
+  - name: test_incremental_newer_batch_replaces_row
+    description: A genuinely newer batch replaces the current silver row.
+    model: silver_sellers
+    overrides:
+      macros:
+        is_incremental: true
+    given:
+      - input: source('bronze', 'sellers')
+        rows:
+          - {seller_id: s1, seller_zip_code_prefix: "13844", seller_city: Mogi Guaçu , seller_state: sp,
+             _load_date: "2016-02-01", _loaded_at: "2026-10-08 12:00:00", _source_file: batch-2}
+      - input: this
+        # SQL format lists every column, so dbt does not need the table to
+        # exist (a fresh dev or CI dataset has none yet).
+        format: sql
+        rows: |
+          select
+              's1' as seller_id, '01037' as zip_code_prefix, 'campinas' as city, 'SP' as state,
+              cast('2016-01-01' as date) as _load_date,
+              cast('2026-10-01 12:00:00' as timestamp) as _loaded_at,
+              'batch-1' as _source_file
+    expect:
+      rows:
+        - {seller_id: s1, zip_code_prefix: "13844", city: mogi guacu, state: SP, _source_file: batch-2}
