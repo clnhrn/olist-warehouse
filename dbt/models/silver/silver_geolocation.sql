@@ -4,10 +4,14 @@
 
 with
 
+bronze as (
+    select * from {{ source('bronze', 'geolocation') }}
+),
+
 latest_batch as (
-    select *
-    from {{ source('bronze', 'geolocation') }}
-    where _load_date = (select max(_load_date) from {{ source('bronze', 'geolocation') }})
+    select bronze.*
+    from bronze
+    where bronze._load_date = (select max(all_batches._load_date) from bronze as all_batches)
 ),
 
 distinct_rows as (
