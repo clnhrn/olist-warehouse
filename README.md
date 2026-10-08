@@ -136,7 +136,7 @@ python -m ingestion check-rerun --load-date D --sink gcs --env dev  # dev_bronze
 
 It force-ingests the date, records the row count of every table, force-ingests it again, and exits non-zero if any count changed. Counts are keyed by layer (`bronze.orders`). Silver (Phase 3) and gold (Phase 4) join the same check, so one command will cover every layer. It refuses `--env prod`, because it writes data. In BigQuery the counts come from table metadata, so the check runs no queries and costs nothing.
 
-On the full dataset, locally, all 9 bronze tables kept their counts (for example, 99,441 orders and 1,000,163 geolocation rows).
+On the full dataset, all 9 bronze tables kept their counts, both locally and in `dev_bronze` (for example, 99,441 orders and 1,000,163 geolocation rows).
 
 ### Rerunning an old batch
 
