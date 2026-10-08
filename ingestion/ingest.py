@@ -145,6 +145,24 @@ def quarantine_frame(rejected: pl.DataFrame, loaded_at: datetime, source_uri: st
     )
 
 
+def backfill_empty_quarantine(
+    storage: Storage, contracts: dict[str, TableContract], load_date: date, loaded_at: datetime
+) -> None:
+    """Empty quarantine files for a loaded date that has none.
+
+    Dates loaded before quarantine existed passed with zero rejects (a bad row
+    failed the batch then), so an empty file is their true record. It also
+    gives the BigQuery external table files to read once every date skips.
+    """
+    for table, contract in contracts.items():
+        key = quarantine_key(table, load_date)
+        if not storage.exists(key):
+            source_uri = storage.uri(landing_key(load_date, contract.source_file))
+            empty = quarantine_frame(empty_rejected(), loaded_at, source_uri)
+            storage.write_bytes(key, to_parquet_bytes(empty))
+            logger.info("Wrote empty quarantine file %s", storage.uri(key))
+
+
 def conform_to_bronze(df: pl.DataFrame, bronze_columns: list[str]) -> pl.DataFrame:
     """Every column the bronze table has, in its order. Columns this batch's
     contract version lacks (added later, or renamed since) are null."""
@@ -268,6 +286,8 @@ def _ingest_date(
     manifest = read_manifest(storage, load_date)
     if manifest and manifest.matches(landing_md5s, versions) and not force:
         logger.info("Load date %s already loaded from identical files, skipping.", load_date)
+        loaded_at = datetime.fromisoformat(manifest.loaded_at) if manifest.loaded_at else started_at
+        backfill_empty_quarantine(storage, contracts, load_date, loaded_at)
         ended_at = datetime.now(UTC)
         records.extend(
             RunRecord(
