@@ -1,4 +1,6 @@
-# Keep only the 3 most recent images to stay inside the 0.5 GB free storage.
+# Keep the 2 most recent versions per image (current plus one to roll back to)
+# to stay near the 0.5 GB free storage. Layers are stored once per repository,
+# so versions with the same uv.lock share their dependency layer.
 resource "google_artifact_registry_repository" "olist" {
   repository_id = "olist"
   location      = var.region
@@ -8,10 +10,10 @@ resource "google_artifact_registry_repository" "olist" {
   cleanup_policy_dry_run = false
 
   cleanup_policies {
-    id     = "keep-latest-3"
+    id     = "keep-latest-2"
     action = "KEEP"
     most_recent_versions {
-      keep_count = 3
+      keep_count = 2
     }
   }
 
