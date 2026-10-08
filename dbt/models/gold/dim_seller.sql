@@ -1,20 +1,6 @@
--- SCD2 shape from the start: one version per seller, valid from the
--- 2016-01-01 baseline (before the first order) and still current. Phase 6
--- swaps the source for a snapshot on a business updated_at; the key recipe
--- (seller_id, valid_from) stays, so baseline keys do not change.
-with
-
-versions as (
-    select
-        seller_id,
-        zip_code_prefix,
-        city,
-        state,
-        cast('2016-01-01 00:00:00' as timestamp) as valid_from,
-        cast(null as timestamp) as valid_to
-    from {{ ref('silver_sellers') }}
-)
-
+-- SCD2: one row per seller version from silver_seller_versions. The key is
+-- a hash of (seller_id, valid_from), so baseline keys stay stable when a
+-- seller later gets new versions.
 select
     {{ dbt_utils.generate_surrogate_key(['seller_id', 'valid_from']) }} as seller_key,
     seller_id,
@@ -25,7 +11,7 @@ select
     valid_from,
     valid_to,
     valid_to is null as is_current
-from versions
+from {{ ref('silver_seller_versions') }}
 
 union all
 
