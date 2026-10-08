@@ -1,6 +1,6 @@
 # Grain and star schema design
 
-The gold layer design: fact grains, dimensions, keys, and measures, plus the data findings behind each decision. Grains confirmed on 2026-10-08. Built in Phase 4, with `dim_seller` history added in Phase 6.
+The gold layer design: fact grains, dimensions, keys, and measures, plus the data findings behind each decision. Grains confirmed on 2026-10-08. Built in Phase 4, with `dim_seller` history added in Phase 6. Money columns are `numeric(18, 2)`, durations `numeric(10, 2)`, coordinates `numeric(9, 6)`.
 
 ## Data findings that shape the design
 
@@ -43,6 +43,7 @@ All facts keep `order_id` as a degenerate dimension (an identifier with no dimen
 |---|---|
 | `order_id`, `order_item_id` | Degenerate key |
 | `purchase_date_key`, `shipping_limit_date_key` | `dim_date` roles |
+| `purchased_at` | Order purchase timestamp, the partitioning column (BigQuery partitions on a date or timestamp column, not on an integer date key) |
 | `customer_key`, `customer_location_key` | Same values as on `fact_orders`, so item revenue can be sliced by customer and region without joining facts |
 | `product_key` | `dim_product` |
 | `seller_key` | The `dim_seller` version valid at purchase time (see SCD2 below) |
@@ -69,8 +70,8 @@ Partitioned by purchase date (monthly), clustered by `seller_key`, `product_key`
 | `items_price_total`, `freight_total`, `order_total` | Sums from items (`order_total` = price + freight) |
 | `payment_total`, `payment_count` | Sums from payments; may differ from `order_total` (interest, vouchers) |
 | `days_to_approve`, `days_to_ship`, `days_to_deliver` | Days from purchase to each milestone (fractional), null if missing |
-| `delivery_delay_days` | `delivered_at - estimated_delivery_at` in days; positive means late |
-| `is_delivered`, `is_late`, `is_canceled` | `is_late` is null when not delivered |
+| `delivery_delay_days` | `delivered_at - estimated_delivery_at` in days; the estimate is midnight, so 0 to 1 is the promised day |
+| `is_delivered`, `is_late`, `is_canceled` | `is_late` compares dates (delivered on a later day than the estimate) and is null when there is no delivery date |
 | `has_status_date_mismatch` | Delivered without a delivery date, or a delivery date without delivered status |
 
 Delivery measures live here, not on items, so they are never repeated per item. Partitioned by purchase date (monthly), clustered by `customer_key`, `order_status`.
@@ -123,7 +124,7 @@ Columns: `location_key`, `zip_code_prefix`, `city` (most common spelling, lowerc
 
 **Grain:** one row per product, 32,951 rows plus unknown.
 
-Columns: `product_key`, `product_id`, `category_pt`, `category_en`, `name_length`, `description_length`, `photos_qty`, `weight_g`, `length_cm`, `height_cm`, `width_cm`, `volume_cm3`. The source typos (`lenght`) are fixed in silver. `category_en` comes from the translation table plus a dbt seed with the 2 missing translations; a null category becomes `unknown`.
+Columns: `product_key`, `product_id`, `category_pt`, `category_en`, `name_length`, `description_length`, `photos_qty`, `weight_g`, `length_cm`, `height_cm`, `width_cm`, `volume_cm3`. The source typos (`lenght`) are fixed in silver. `category_en` comes from the translation table plus a dbt seed (`category_translation_missing`) with the 2 missing translations; a null category becomes `unknown`.
 
 ### dim_seller (SCD2)
 
@@ -168,5 +169,4 @@ erDiagram
 ## Notes for later phases
 
 - **Phase 6:** the simulated seller change in batch 2 should change the zip code prefix together with city and state, so the seller's `location_key` stays consistent with its address.
-- **Phase 4:** add tests that every fact foreign key exists in its dimension, that fact row counts match silver (items 112,650, orders 99,441, payments 103,886, reviews 99,224), and that `fact_orders.items_price_total` sums to `fact_order_items.price`.
 - **Optional:** Brazilian public holidays on `dim_date`.
