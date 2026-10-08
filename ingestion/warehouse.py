@@ -53,3 +53,11 @@ class BigQueryWarehouse:
         job.result()
         logger.info("Loaded %s rows into %s", job.output_rows, destination)
         return int(job.output_rows or 0)
+
+    def row_counts(self) -> dict[str, int]:
+        """Rows per bronze table, from table metadata (no query, nothing billed)."""
+        dataset = f"{self.settings.project_id}.{self.settings.bronze_dataset}"
+        return {
+            f"bronze.{item.table_id}": int(self.client.get_table(item.reference).num_rows or 0)
+            for item in self.client.list_tables(dataset)
+        }

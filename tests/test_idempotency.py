@@ -1,0 +1,44 @@
+from datetime import date
+
+import pytest
+
+from ingestion.cli import main
+from ingestion.idempotency import CountChange, check_rerun, diff_counts, local_bronze_counts
+from ingestion.ingest import ingest
+from ingestion.land import land
+from ingestion.storage import LocalStorage
+
+LOAD_DATE = date(2016, 1, 1)
+
+
+@pytest.fixture
+def two_contracts(contracts):
+    return {t: contracts[t] for t in ("sellers", "orders")}
+
+
+def test_rerun_of_same_date_keeps_bronze_counts(tmp_path, two_contracts, source_dir):
+    lake = LocalStorage(tmp_path / "lake")
+    land(lake, two_contracts, source_dir, LOAD_DATE)
+
+    changes = check_rerun(
+        run=lambda: ingest(lake, None, two_contracts, LOAD_DATE, force=True),
+        count=lambda: local_bronze_counts(tmp_path / "lake"),
+    )
+
+    assert changes == []
+    assert local_bronze_counts(tmp_path / "lake") == {"bronze.orders": 2, "bronze.sellers": 2}
+
+
+def test_check_flags_a_run_that_appends():
+    counts = iter([{"bronze.orders": 2}, {"bronze.orders": 4}])
+    changes = check_rerun(run=lambda: None, count=lambda: next(counts))
+    assert changes == [CountChange("bronze.orders", 2, 4)]
+
+
+def test_diff_reports_added_and_missing_tables():
+    changes = diff_counts({"bronze.a": 1, "bronze.b": 1}, {"bronze.b": 1, "bronze.c": 1})
+    assert changes == [CountChange("bronze.a", 1, None), CountChange("bronze.c", None, 1)]
+
+
+def test_check_rerun_refuses_prod():
+    assert main(["check-rerun", "--load-date", "2016-01-01", "--env", "prod"]) == 1
