@@ -1,0 +1,19 @@
+version: 2
+
+seeds:
+  - name: category_translation_missing
+    description: >
+      English names for the 2 product categories the source translation table
+      lacks. dim_product falls back to this seed.
+    config:
+      schema: silver
+      column_types:
+        category_name_pt: string
+        category_name_en: string
+    columns:
+      - name: category_name_pt
+        description: Category name in Portuguese, as on silver_products. Primary key.
+        data_tests: [unique, not_null]
+      - name: category_name_en
+        description: Category name in English, snake_case like the source table.
+        data_tests: [not_null]

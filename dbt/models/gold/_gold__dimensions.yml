@@ -1,0 +1,198 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: >
+      Calendar, one row per day from 2016-01-01 to 2020-12-31, plus the unknown
+      member (date_key -1) for milestones that have not happened.
+    columns:
+      - name: date_key
+        description: Date as a YYYYMMDD integer, -1 for unknown. Primary key.
+        data_type: int64
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: date
+        description: Calendar date. Null for the unknown member.
+        data_type: date
+      - name: year
+        description: Calendar year.
+        data_type: int64
+      - name: quarter
+        description: Quarter of the year, 1 to 4.
+        data_type: int64
+      - name: month
+        description: Month of the year, 1 to 12.
+        data_type: int64
+      - name: month_name
+        description: Month name in English, for example January.
+        data_type: string
+      - name: year_month
+        description: Year and month as YYYY-MM, for monthly grouping.
+        data_type: string
+      - name: week_of_year
+        description: ISO 8601 week number (weeks start on Monday).
+        data_type: int64
+      - name: day_of_week
+        description: ISO day of week, 1 = Monday to 7 = Sunday.
+        data_type: int64
+      - name: day_name
+        description: Day name in English, for example Monday.
+        data_type: string
+      - name: is_weekend
+        description: True on Saturday and Sunday.
+        data_type: bool
+
+  - name: dim_customer
+    description: >
+      One row per person (customer_unique_id), plus the unknown member. Source
+      customer_id is per order, so one person can have several. Address is not
+      here: each order's address is on the facts as customer_location_key.
+    columns:
+      - name: customer_key
+        description: Surrogate key, a hash of customer_unique_id. '-1' is unknown. Primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: customer_unique_id
+        description: The person's natural key from the source.
+        data_type: string
+        data_tests: [unique]
+      - name: first_purchase_date
+        description: Date of the person's first order.
+        data_type: date
+      - name: last_purchase_date
+        description: Date of the person's latest order.
+        data_type: date
+      - name: order_count
+        description: Number of orders the person placed, all statuses.
+        data_type: int64
+      - name: is_repeat_customer
+        description: True when the person placed more than one order.
+        data_type: bool
+
+  - name: dim_location
+    description: >
+      One row per zip code prefix, from the union of zips in geolocation,
+      customers, and sellers, plus the unknown member. Used in two roles on the
+      facts: customer location and seller location.
+    columns:
+      - name: location_key
+        description: Surrogate key, a hash of zip_code_prefix. '-1' is unknown. Primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: zip_code_prefix
+        description: First 5 digits of the zip code, as text.
+        data_type: string
+        data_tests: [unique]
+      - name: city
+        description: >
+          Most common spelling in geolocation, lowercased and without accents;
+          customer and seller addresses for zips geolocation lacks.
+        data_type: string
+      - name: state
+        description: Two-letter state code, from the same row as city.
+        data_type: string
+      - name: latitude
+        description: Median latitude of the zip's geolocation points. Null if geolocation lacks the zip.
+        data_type: numeric(9, 6)
+      - name: longitude
+        description: Median longitude of the zip's geolocation points. Null if geolocation lacks the zip.
+        data_type: numeric(9, 6)
+
+  - name: dim_product
+    description: One row per product, plus the unknown member.
+    columns:
+      - name: product_key
+        description: Surrogate key, a hash of product_id. '-1' is unknown. Primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: product_id
+        description: The product's natural key from the source.
+        data_type: string
+        data_tests: [unique]
+      - name: category_pt
+        description: Category name in Portuguese. Null for 610 products with no category.
+        data_type: string
+      - name: category_en
+        description: >
+          Category name in English, from the source translation table plus a
+          seed for the 2 categories it lacks. 'unknown' when there is no category.
+        data_type: string
+        data_tests: [not_null]
+      - name: name_length
+        description: Characters in the product name (source typo "lenght" fixed).
+        data_type: int64
+      - name: description_length
+        description: Characters in the product description (source typo "lenght" fixed).
+        data_type: int64
+      - name: photos_qty
+        description: Number of product photos.
+        data_type: int64
+      - name: weight_g
+        description: Weight in grams.
+        data_type: int64
+      - name: length_cm
+        description: Package length in centimeters.
+        data_type: int64
+      - name: height_cm
+        description: Package height in centimeters.
+        data_type: int64
+      - name: width_cm
+        description: Package width in centimeters.
+        data_type: int64
+      - name: volume_cm3
+        description: Package volume, length x height x width.
+        data_type: int64
+
+  - name: dim_seller
+    description: >
+      One row per seller per version (SCD2), plus the unknown member. Until
+      Phase 6 every seller has one version, valid from the 2016-01-01 baseline.
+      Facts join the version where valid_from <= purchased_at < valid_to.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [seller_id, valid_from]
+    columns:
+      - name: seller_key
+        description: Surrogate key, a hash of seller_id and valid_from. '-1' is unknown. Primary key.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: seller_id
+        description: The seller's natural key from the source.
+        data_type: string
+        data_tests:
+          # Exactly one current version per seller.
+          - unique:
+              config:
+                where: is_current
+      - name: zip_code_prefix
+        description: Zip code prefix of this version's address.
+        data_type: string
+      - name: city
+        description: City of this version's address, lowercased and without accents.
+        data_type: string
+      - name: state
+        description: State of this version's address.
+        data_type: string
+      - name: location_key
+        description: dim_location key of this version's zip code.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_location')
+                field: location_key
+      - name: valid_from
+        description: Start of the version (inclusive).
+        data_type: timestamp
+      - name: valid_to
+        description: End of the version (exclusive). Null for the current version.
+        data_type: timestamp
+      - name: is_current
+        description: True for the seller's current version.
+        data_type: bool
