@@ -73,3 +73,31 @@ unit_tests:
     expect:
       rows:
         - {seller_id: s1, zip_code_prefix: "13844", city: mogi guacu, state: SP, _source_file: batch-2}
+
+  # Schema evolution, tested on silver_products: contract v2 renamed the
+  # "lenght" columns, and bronze keeps both spellings.
+  - name: test_renamed_columns_merge_across_contract_versions
+    description: >
+      p1 was last delivered under v1 (typo columns), p2 under v2 (corrected
+      columns), and p3 under both, where batch 2 wins. Every product gets its
+      lengths whichever spelling its latest batch used.
+    model: silver_products
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('bronze', 'products')
+        rows:
+          - {product_id: p1, product_name_lenght: "40", product_description_lenght: "300",
+             _load_date: "2016-01-01", _loaded_at: "2026-10-01 12:00:00", _source_file: batch-1}
+          - {product_id: p2, product_name_length: "50", product_description_length: "400",
+             _load_date: "2016-02-01", _loaded_at: "2026-10-08 12:00:00", _source_file: batch-2}
+          - {product_id: p3, product_name_lenght: "10", product_description_lenght: "100",
+             _load_date: "2016-01-01", _loaded_at: "2026-10-01 12:00:00", _source_file: batch-1}
+          - {product_id: p3, product_name_length: "11", product_description_length: "110",
+             _load_date: "2016-02-01", _loaded_at: "2026-10-08 12:00:00", _source_file: batch-2}
+    expect:
+      rows:
+        - {product_id: p1, name_length: 40, description_length: 300}
+        - {product_id: p2, name_length: 50, description_length: 400}
+        - {product_id: p3, name_length: 11, description_length: 110}

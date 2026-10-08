@@ -28,6 +28,8 @@ sources:
       - name: product_category_translation
         description: Portuguese to English product category names, per batch.
       - name: products
-        description: One row per product, per batch. Column names keep the source "lenght" typos.
+        description: >
+          One row per product, per batch. Batches under contract v1 fill the
+          "lenght" typo columns, batches under v2 the corrected ones.
       - name: sellers
-        description: One row per seller, per batch.
+        description: One row per seller, per batch. seller_updated_at is filled from contract v2.
