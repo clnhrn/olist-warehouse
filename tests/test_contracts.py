@@ -3,7 +3,7 @@ import io
 import polars as pl
 import pytest
 
-from contracts.loader import METADATA_COLUMNS
+from contracts.loader import METADATA_COLUMNS, bronze_schema
 from ingestion.ingest import ContractViolationError, read_landing_csv, validate
 from tests.conftest import ORDERS_CSV, SELLERS_CSV
 
@@ -17,8 +17,8 @@ def test_all_nine_contracts_load(contracts):
     assert {"orders", "order_items", "sellers", "geolocation"} <= set(contracts)
 
 
-def test_bronze_schema_is_strings_plus_metadata(contracts):
-    columns = dict(contracts["sellers"].bronze_columns())
+def test_bronze_schema_is_strings_plus_metadata(registry):
+    columns = dict(bronze_schema(registry.bronze_columns("sellers")))
     assert columns["seller_zip_code_prefix"] == "STRING"
     for name, bq_type in METADATA_COLUMNS.items():
         assert columns[name] == bq_type

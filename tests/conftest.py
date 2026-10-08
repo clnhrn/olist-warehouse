@@ -1,9 +1,13 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from contracts.loader import TableContract, load_contracts
+from contracts.loader import ContractRegistry, TableContract, load_registry
 from ingestion.config import LOCAL_RAW_DIR
+
+# The first batch, validated against v1 of every contract.
+FIRST_LOAD_DATE = date(2016, 1, 1)
 
 SELLERS_CSV = (
     '"seller_id","seller_zip_code_prefix","seller_city","seller_state"\n'
@@ -23,8 +27,19 @@ ORDERS_CSV = (
 
 
 @pytest.fixture(scope="session")
-def contracts() -> dict[str, TableContract]:
-    return load_contracts()
+def registry() -> ContractRegistry:
+    return load_registry()
+
+
+@pytest.fixture(scope="session")
+def contracts(registry) -> dict[str, TableContract]:
+    """The v1 contracts, in force for the first batch."""
+    return registry.for_date(FIRST_LOAD_DATE)
+
+
+@pytest.fixture
+def two_tables(registry) -> ContractRegistry:
+    return registry.select(["sellers", "orders"])
 
 
 @pytest.fixture

@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime
 import pandera.errors as pa_errors
 import polars as pl
 
-from contracts.loader import DEFAULT_VERSION, TableContract, pandera_schema
+from contracts.loader import ContractRegistry, TableContract, bronze_schema, pandera_schema
 from ingestion.config import bronze_key, landed_dates, landing_key
 from ingestion.manifest import Manifest, TableEntry, read_manifest, write_manifest
 from ingestion.storage import Storage
@@ -71,6 +71,15 @@ def add_metadata(
     )
 
 
+def conform_to_bronze(df: pl.DataFrame, bronze_columns: list[str]) -> pl.DataFrame:
+    """Every column the bronze table has, in its order. Columns this batch's
+    contract version lacks (added later, or renamed since) are null."""
+    missing = [name for name in bronze_columns if name not in df.columns]
+    return df.with_columns(pl.lit(None, dtype=pl.Utf8).alias(name) for name in missing).select(
+        bronze_columns
+    )
+
+
 def to_parquet_bytes(df: pl.DataFrame) -> bytes:
     buffer = io.BytesIO()
     df.write_parquet(buffer)
@@ -81,12 +90,14 @@ def _ingest_table(
     storage: Storage,
     warehouse: BigQueryWarehouse | None,
     contract: TableContract,
+    bronze_columns: list[str],
     load_date: date,
     loaded_at: datetime,
 ) -> int:
     source_key = landing_key(load_date, contract.source_file)
     df = read_landing_csv(storage.read_bytes(source_key))
     validate(df, contract)
+    df = conform_to_bronze(df, bronze_columns)
     df = add_metadata(df, loaded_at, load_date, storage.uri(source_key))
 
     parquet_key = bronze_key(contract.table, load_date)
@@ -95,19 +106,32 @@ def _ingest_table(
 
     if warehouse is None:
         return df.height
-    loaded = warehouse.load_partition(contract, storage.uri(parquet_key), load_date)
+    loaded = warehouse.load_partition(
+        contract, bronze_schema(bronze_columns), storage.uri(parquet_key), load_date
+    )
     if loaded != df.height:
         raise RuntimeError(f"{contract.table}: wrote {df.height} rows but BigQuery loaded {loaded}")
     return loaded
 
 
+def sync_bronze_schemas(warehouse: BigQueryWarehouse, registry: ContractRegistry) -> None:
+    """Add any column a contract version introduced to its bronze table, before
+    loading or skipping, so silver can select it even before a batch fills it."""
+    for table, versions in registry.versions.items():
+        warehouse.ensure_table(versions[-1], bronze_schema(registry.bronze_columns(table)))
+
+
 def ingest(
     storage: Storage,
     warehouse: BigQueryWarehouse | None,
-    contracts: dict[str, TableContract],
+    registry: ContractRegistry,
     load_date: date,
     force: bool = False,
 ) -> IngestResult:
+    """Load one date, each table validated against the contract in force on that date."""
+    contracts = registry.for_date(load_date)
+    if warehouse is not None:
+        sync_bronze_schemas(warehouse, registry)
     missing = [
         c.source_file
         for c in contracts.values()
@@ -119,19 +143,23 @@ def ingest(
     landing_md5s = {
         table: storage.md5(landing_key(load_date, c.source_file)) for table, c in contracts.items()
     }
+    versions = {table: c.version for table, c in contracts.items()}
     manifest = read_manifest(storage, load_date)
-    if manifest and manifest.matches(landing_md5s) and not force:
+    if manifest and manifest.matches(landing_md5s, versions) and not force:
         logger.info("Load date %s already loaded from identical files, skipping.", load_date)
         return IngestResult(skipped=True, rows={t: manifest.tables[t].rows for t in contracts})
 
-    manifest = manifest or Manifest(
-        load_date=load_date.isoformat(), contract_version=DEFAULT_VERSION
-    )
+    manifest = manifest or Manifest(load_date=load_date.isoformat())
     loaded_at = datetime.now(UTC)
     rows: dict[str, int] = {}
     for table, contract in contracts.items():
-        rows[table] = _ingest_table(storage, warehouse, contract, load_date, loaded_at)
-        manifest.tables[table] = TableEntry(landing_md5=landing_md5s[table], rows=rows[table])
+        bronze_columns = registry.bronze_columns(table)
+        rows[table] = _ingest_table(
+            storage, warehouse, contract, bronze_columns, load_date, loaded_at
+        )
+        manifest.tables[table] = TableEntry(
+            landing_md5=landing_md5s[table], rows=rows[table], contract_version=contract.version
+        )
 
     manifest.loaded_at = loaded_at.isoformat()
     write_manifest(storage, load_date, manifest)
@@ -141,11 +169,11 @@ def ingest(
 def ingest_landed(
     storage: Storage,
     warehouse: BigQueryWarehouse | None,
-    contracts: dict[str, TableContract],
+    registry: ContractRegistry,
     force: bool = False,
 ) -> dict[date, IngestResult]:
     """Ingest every landed date, oldest first. The scheduled run: unchanged dates skip."""
     dates = landed_dates(storage)
     if not dates:
         logger.info("No load dates in landing, nothing to ingest.")
-    return {d: ingest(storage, warehouse, contracts, d, force=force) for d in dates}
+    return {d: ingest(storage, warehouse, registry, d, force=force) for d in dates}

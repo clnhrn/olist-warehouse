@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 PARTITION_FIELD = "_load_date"
 
 
-def _schema(contract: TableContract) -> list[bigquery.SchemaField]:
-    return [bigquery.SchemaField(name, bq_type) for name, bq_type in contract.bronze_columns()]
+def _schema(columns: list[tuple[str, str]]) -> list[bigquery.SchemaField]:
+    return [bigquery.SchemaField(name, bq_type) for name, bq_type in columns]
 
 
 def _partitioning() -> bigquery.TimePartitioning:
@@ -32,20 +32,34 @@ class BigQueryWarehouse:
         s = self.settings
         return f"{s.project_id}.{s.bronze_dataset}.{contract.table}"
 
-    def ensure_table(self, contract: TableContract) -> None:
-        table = bigquery.Table(self._table_id(contract), schema=_schema(contract))
+    def ensure_table(self, contract: TableContract, columns: list[tuple[str, str]]) -> None:
+        """Create the table, or append the columns it lacks. Only ever adds columns."""
+        table = bigquery.Table(self._table_id(contract), schema=_schema(columns))
         table.time_partitioning = _partitioning()
         table.description = contract.description
-        self.client.create_table(table, exists_ok=True)
+        table = self.client.create_table(table, exists_ok=True)
 
-    def load_partition(self, contract: TableContract, parquet_uri: str, load_date: date) -> int:
+        existing = {field.name for field in table.schema}
+        added = [field for field in _schema(columns) if field.name not in existing]
+        if added:
+            table.schema = [*table.schema, *added]
+            self.client.update_table(table, ["schema"])
+            logger.info("Added columns %s to %s", [f.name for f in added], table.full_table_id)
+
+    def load_partition(
+        self,
+        contract: TableContract,
+        columns: list[tuple[str, str]],
+        parquet_uri: str,
+        load_date: date,
+    ) -> int:
         """Replace exactly one partition, so rerunning a load date never duplicates rows."""
-        self.ensure_table(contract)
+        self.ensure_table(contract, columns)
         destination = f"{self._table_id(contract)}${load_date:%Y%m%d}"
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            schema=_schema(contract),
+            schema=_schema(columns),
             time_partitioning=_partitioning(),
             schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
         )
