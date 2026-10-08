@@ -1,0 +1,5 @@
+project_id      = "<project-id>"
+developer_email = "<you>@example.com"
+
+# Set after the first image push (Phase 1, part D):
+# ingestion_image = "us-central1-docker.pkg.dev/<project-id>/olist/ingestion:<git-sha>"
