@@ -1,5 +1,11 @@
 # Build from the repo root:
 #   docker build -f ingestion/Dockerfile -t ingestion .
+#
+# For Artifact Registry, push one plain linux/amd64 manifest (no index, no
+# attestations), so each push is one registry version and the keep-3 cleanup
+# policy keeps 3 whole images:
+#   docker build --platform=linux/amd64 --provenance=false --sbom=false \
+#     -f ingestion/Dockerfile -t <repo>/ingestion:<git-sha> .
 FROM python:3.12-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /bin/uv
