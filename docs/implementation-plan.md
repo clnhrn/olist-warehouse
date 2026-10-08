@@ -90,15 +90,15 @@ olist-warehouse/
 - Create a GCP project with a budget alert (set it low, for example $5).
 - Create the GitHub repo and the Terraform remote state bucket (bootstrap step, `us-central1`, versioning on).
 - Install tools inside WSL: gcloud SDK (not the Windows install, whose credentials WSL Python cannot see), Terraform, uv, and the Kaggle CLI. dbt and DuckDB go in the project's uv environment.
-- Service accounts and Workload Identity Federation are created by Terraform in Phase 1, not by hand.
+- Service accounts are created by Terraform in Phase 1, and Workload Identity Federation in Phase 8, never by hand.
 - The Secret Manager secret for the LLM API key waits until Phase 9.
 - Download the dataset and explore it in DuckDB.
 - Write down the fact table grain and star schema design on paper first.
 
 ### Phase 1: Ingestion (2 to 3 days)
-- Terraform: GCS bucket, BigQuery datasets (`bronze`, `silver`, `gold` and the `dev_` versions), Artifact Registry, and service accounts (ingestion prod, dev with write access to `dev_*` only, CI through Workload Identity Federation). Everything in `us-central1`.
-- Upload the raw CSVs to `gs://<bucket>/landing/load_date=YYYY-MM-DD/`. Landing is never modified.
-- Python job (`--env dev|prod`, `--load-date`, `--sink gcs|local`):
+- Terraform: two lake buckets (`<project>-lake-dev`, `<project>-lake-prod`, so IAM stays per bucket), BigQuery datasets (`bronze`, `silver`, `gold` and the `dev_` versions), Artifact Registry, and service accounts (`sa-ingestion-prod`, and `sa-dev` with write access to `dev_*` only). Everything in `us-central1`. The CI service account and Workload Identity Federation wait until Phase 8, when CI exists.
+- Upload the raw CSVs with `python -m ingestion land` to `gs://<bucket>/landing/load_date=YYYY-MM-DD/`. Landing is never modified: `land` refuses a date that already has files.
+- Python job, `python -m ingestion ingest` (`--env dev|prod`, `--load-date`, `--sink gcs|local`):
   - Read the CSVs from landing, or from `data/raw/` for the local sink.
   - Validate with Pandera. Checks are on columns and parsing only, so bronze stays as-is. In Phase 1, a failed batch stops the job loudly. Row-level quarantine comes in Phase 7.
   - Add `_loaded_at`, `_load_date`, and `_source_file` for lineage (tracing where data came from).
@@ -106,6 +106,7 @@ olist-warehouse/
   - Exit early if that `load_date` is already loaded and has not changed.
 - Bronze tables use explicit schemas defined in `contracts/`, never autodetect, so types cannot drift between batches. Partition them by `_load_date`. Allow `ALLOW_FIELD_ADDITION` on loads now, so Phase 5 does not need a rewrite.
 - Package as a Cloud Run Job. The Workflow and Scheduler wait until Phase 3, when there is a dbt job to chain.
+- The first image is pushed by hand (a one-time bootstrap, tagged with the git SHA). From Phase 8, CI builds and pushes images.
 
 ### Phase 2: Idempotency (1 day)
 - Bronze is append-only across batches, but rerunning the same `load_date` replaces only that date's partition, so a retry never creates duplicates.
@@ -173,8 +174,10 @@ Suggested model (confirm grain before building). All of these live in the `gold`
 - Add a short note on how this supports audit trails.
 
 ### Phase 8: CI/CD (1 to 2 days)
+- Terraform: Workload Identity Federation pool and provider (restricted to this GitHub repo), the CI service account, and the STS API.
 - GitHub Actions workflow on pull requests: lint (SQLFluff and Python), `terraform plan`, `dbt build` against the dev datasets, Pandera tests. Authenticate with Workload Identity Federation.
-- On merge to main: `terraform apply`, deploy the Cloud Run Job images, run `dbt build` on prod.
+- On merge to main: `terraform apply`, build and push the job images, run `dbt build` on prod. CI becomes the only thing that pushes images.
+- Image versions: Terraform owns each job's settings, CI updates the image with `gcloud run jobs deploy`, and the job's image is in `lifecycle { ignore_changes }`, so deploys do not show up as drift in `terraform plan`.
 
 ### Phase 9: AI layer, text-to-SQL agent (4 to 5 days)
 - Agent flow: user question -> LLM reads the table and column descriptions from dbt docs -> writes SQL -> runs it -> explains the result.
