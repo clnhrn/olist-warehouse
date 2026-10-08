@@ -25,6 +25,23 @@ resource "google_cloud_run_v2_job_iam_member" "orchestrator_runs_jobs" {
   depends_on = [google_cloud_run_v2_job.ingestion, google_cloud_run_v2_job.dbt]
 }
 
+# The Workflows connector waits for a job by polling its long-running
+# operation, which needs run.operations.get. Operations are project-level, so
+# a one-permission custom role is the narrowest grant (roles/run.viewer would
+# also allow reading every Cloud Run resource).
+resource "google_project_iam_custom_role" "run_operations_viewer" {
+  role_id     = "runOperationsViewer"
+  title       = "Cloud Run operations viewer"
+  description = "Poll Cloud Run long-running operations (Workflows job connector)."
+  permissions = ["run.operations.get"]
+}
+
+resource "google_project_iam_member" "orchestrator_run_operations" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.run_operations_viewer.id
+  member  = google_service_account.orchestrator_prod.member
+}
+
 # Workflows has no per-workflow IAM, so these are project-level.
 resource "google_project_iam_member" "orchestrator" {
   for_each = toset(["roles/workflows.invoker", "roles/logging.logWriter"])
