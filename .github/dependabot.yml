@@ -1,0 +1,14 @@
+# Actions are pinned to commit SHAs (a tag can be moved to other code; a SHA
+# cannot). Dependabot keeps the pins and their version comments current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+      include: scope
