@@ -34,10 +34,11 @@ Fill these in as the project takes shape.
 - Python tests: `uv run pytest`
 - Lint Python: `uv run ruff check .` and `uv run ruff format --check .`
 - Terraform: `terraform -chdir=terraform init -backend-config=backend.hcl`, then `plan -out=<name>.tfplan`; apply only with approval. ADC impersonates sa-dev, which cannot read the state, so Terraform runs with a token from your gcloud user login: `GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token) terraform ...`
-- Build the images: `docker build --platform=linux/amd64 --provenance=false --sbom=false -f ingestion/Dockerfile -t <repo>/ingestion:<git-sha> .` (same with `-f dbt/Dockerfile -t <repo>/dbt:<git-sha>`)
+- Build the images locally (test only, never push; CI pushes): `docker build --platform=linux/amd64 --provenance=false --sbom=false -f ingestion/Dockerfile -t ingestion .` (same with `-f dbt/Dockerfile -t dbt`)
 - dbt runs from `dbt/`, where `profiles.yml` and its relative paths live: `cd dbt && uv run dbt build --target local` (DuckDB) or `--target dev` (BigQuery dev, needs `OLIST_PROJECT_ID`)
 - Lint SQL: `cd dbt && uv run sqlfluff lint models`
 - Pre-commit: `uv run pre-commit install` once; hooks run ruff, sqlfluff, and terraform fmt
+- CI/CD: open a PR (`gh pr create`); `.github/workflows/pr.yml` runs lint, tests, `terraform plan`, dbt on dev, and image builds. Merging to main runs `deploy.yml`: terraform apply, push images, update jobs, run the prod dbt job. Merge only with approval. Watch with `gh pr checks <n> --watch` and `gh run watch <id>`
 
 ## Rules (always follow)
 
