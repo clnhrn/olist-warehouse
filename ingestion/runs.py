@@ -43,11 +43,33 @@ MAX_MESSAGE_LENGTH = 1000
 
 
 def new_run_id() -> str:
+    """Get the run id for this process.
+
+    Returns:
+        `OLIST_RUN_ID` (the workflow execution id) if set, else a new UUID.
+    """
     return os.environ.get("OLIST_RUN_ID") or uuid.uuid4().hex
 
 
 @dataclass(frozen=True)
 class RunRecord:
+    """One pipeline_runs row: the outcome for one table and load date.
+
+    Attributes:
+        run_id: Id shared by every row of one pipeline run.
+        object: Table the row is about.
+        load_date: The batch's load date.
+        started_at: When work on the table started.
+        ended_at: When it ended.
+        status: Outcome: `loaded`, `skipped` or `failed`.
+        rows_in: Rows read from the source.
+        rows_out: Rows written to the layer.
+        rows_quarantined: Rows that failed their contract.
+        message: Error or skip reason, truncated when written.
+        component: Pipeline component that wrote the row.
+        layer: Layer the row is about.
+    """
+
     run_id: str
     object: str
     load_date: date
@@ -62,6 +84,12 @@ class RunRecord:
     layer: str = "bronze"
 
     def to_json(self) -> dict[str, object]:
+        """Convert the record to a JSON-ready row.
+
+        Returns:
+            The fields, with dates as ISO strings and the message truncated to
+            `MAX_MESSAGE_LENGTH`.
+        """
         row = asdict(self)
         for key, value in row.items():
             if isinstance(value, date | datetime):
@@ -72,17 +100,38 @@ class RunRecord:
 
 
 class RunLog(Protocol):
+    """Append-only sink for pipeline_runs rows.
+
+    Attributes:
+        run_id: Id of the run whose rows this log writes.
+    """
+
     run_id: str
 
-    def write(self, records: list[RunRecord]) -> None: ...
+    def write(self, records: list[RunRecord]) -> None:
+        """Append rows. Does nothing when `records` is empty.
+
+        Args:
+            records: Rows to append.
+        """
+        ...
 
 
 class LocalRunLog:
+    """`RunLog` that appends to `<runs_dir>/<run_id>.jsonl`."""
+
     def __init__(self, runs_dir: Path, run_id: str) -> None:
+        """Create a local run log.
+
+        Args:
+            runs_dir: Folder for the JSON Lines files.
+            run_id: Id of the current run.
+        """
         self.path = runs_dir / f"{run_id}.jsonl"
         self.run_id = run_id
 
     def write(self, records: list[RunRecord]) -> None:
+        """See `RunLog.write`."""
         if not records:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,12 +140,21 @@ class LocalRunLog:
 
 
 class BigQueryRunLog:
+    """`RunLog` that appends to `<ops>.pipeline_runs` with a free load job."""
+
     def __init__(self, settings: GcpSettings, run_id: str) -> None:
+        """Create a BigQuery run log.
+
+        Args:
+            settings: GCP settings of the target environment.
+            run_id: Id of the current run.
+        """
         self.client = bigquery.Client(project=settings.project_id, location=settings.region)
         self.table_id = f"{settings.project_id}.{settings.dataset('ops')}.pipeline_runs"
         self.run_id = run_id
 
     def write(self, records: list[RunRecord]) -> None:
+        """See `RunLog.write`. Creates the table on first use."""
         if not records:
             return
         job_config = bigquery.LoadJobConfig(

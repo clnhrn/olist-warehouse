@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class LandingExistsError(RuntimeError):
-    pass
+    """The load date already has files in landing, which is immutable."""
 
 
 def land(
@@ -23,7 +23,21 @@ def land(
     source_dir: Path,
     load_date: date,
 ) -> list[str]:
-    """Upload one CSV per contract. Refuses to touch a load date that already has files."""
+    """Upload one CSV per contract into a new landing partition.
+
+    Args:
+        storage: The lake.
+        contracts: Contracts in force on the date, per table.
+        source_dir: Folder holding the source CSVs.
+        load_date: The batch's load date.
+
+    Returns:
+        Location of each landed file.
+
+    Raises:
+        LandingExistsError: If the load date already has files.
+        FileNotFoundError: If a source CSV is missing.
+    """
     existing = storage.list_keys(landing_prefix(load_date))
     if existing:
         raise LandingExistsError(

@@ -24,7 +24,14 @@ def _partitioning() -> bigquery.TimePartitioning:
 
 
 class BigQueryWarehouse:
+    """Bronze tables in BigQuery for one environment."""
+
     def __init__(self, settings: GcpSettings) -> None:
+        """Create a BigQuery client for an environment.
+
+        Args:
+            settings: GCP settings of the target environment.
+        """
         self.settings = settings
         self.client = bigquery.Client(project=settings.project_id, location=settings.region)
 
@@ -33,7 +40,14 @@ class BigQueryWarehouse:
         return f"{s.project_id}.{s.bronze_dataset}.{contract.table}"
 
     def ensure_table(self, contract: TableContract, columns: list[tuple[str, str]]) -> None:
-        """Create the table, or append the columns it lacks. Only ever adds columns."""
+        """Create the bronze table, or append the columns it lacks.
+
+        Only ever adds columns.
+
+        Args:
+            contract: The table's latest contract (for name and description).
+            columns: `(name, BigQuery type)` pairs the table must have.
+        """
         table = bigquery.Table(self._table_id(contract), schema=_schema(columns))
         table.time_partitioning = _partitioning()
         table.description = contract.description
@@ -47,7 +61,7 @@ class BigQueryWarehouse:
             logger.info("Added columns %s to %s", [f.name for f in added], table.full_table_id)
 
     def ensure_quarantine_table(self) -> None:
-        """External table over the quarantine Parquet in the lake bucket.
+        """Create the external table over the quarantine Parquet in the lake bucket.
 
         The files are the data: a rerun overwrites them, so the table can never
         hold duplicates, and there is nothing to load or keep in sync. Explicit
@@ -77,7 +91,19 @@ class BigQueryWarehouse:
         parquet_uri: str,
         load_date: date,
     ) -> int:
-        """Replace exactly one partition, so rerunning a load date never duplicates rows."""
+        """Replace exactly one partition with a Parquet file.
+
+        Rerunning a load date never duplicates rows.
+
+        Args:
+            contract: The table's contract.
+            columns: `(name, BigQuery type)` pairs of the bronze table.
+            parquet_uri: `gs://` URI of the batch's Parquet file.
+            load_date: The partition to replace.
+
+        Returns:
+            Rows loaded.
+        """
         self.ensure_table(contract, columns)
         destination = f"{self._table_id(contract)}${load_date:%Y%m%d}"
         job_config = bigquery.LoadJobConfig(
@@ -93,7 +119,14 @@ class BigQueryWarehouse:
         return int(job.output_rows or 0)
 
     def row_counts(self, layers: tuple[str, ...] = ("bronze",)) -> dict[str, int]:
-        """Rows per table in each layer's dataset, from metadata (no query, nothing billed)."""
+        """Count rows per table from metadata (no query, nothing billed).
+
+        Args:
+            layers: Layers whose datasets to count.
+
+        Returns:
+            Row counts keyed `<layer>.<table>`.
+        """
         counts: dict[str, int] = {}
         for layer in layers:
             dataset = f"{self.settings.project_id}.{self.settings.dataset(layer)}"

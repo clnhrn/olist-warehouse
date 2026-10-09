@@ -57,20 +57,42 @@ PARSE_KINDS = {*PARSE_PATTERNS, "text"}
 
 
 class ContractError(ValueError):
-    pass
+    """A contract file is invalid, or a new version breaks an older one."""
 
 
 @dataclass(frozen=True)
 class ColumnContract:
+    """One source column in a table contract.
+
+    Attributes:
+        name: Column name as it appears in the source CSV header.
+        parse: Parse kind the raw value must match (a key of `PARSE_PATTERNS`,
+            or `text` for no check).
+        nullable: Whether the column may be empty.
+        renamed_from: The column's name in the previous version, if the
+            source renamed it.
+    """
+
     name: str
     parse: str
     nullable: bool
-    # The column's name in the previous version, if the source renamed it.
     renamed_from: str | None = None
 
 
 @dataclass(frozen=True)
 class TableContract:
+    """One version of a bronze table's contract, as read from its YAML file.
+
+    Attributes:
+        version: Contract version, matching its `vN/` folder.
+        effective_from: First load date this version applies to.
+        table: Bronze table name.
+        source_file: CSV file name in landing.
+        description: Free-text description of the table.
+        primary_key: Columns that identify a row.
+        columns: Column contracts, in source order.
+    """
+
     version: int
     effective_from: date
     table: str
@@ -81,19 +103,36 @@ class TableContract:
 
     @property
     def column_names(self) -> list[str]:
+        """Column names, in source order."""
         return [c.name for c in self.columns]
 
 
 def bronze_schema(source_columns: list[str]) -> list[tuple[str, str]]:
-    """(name, BigQuery type) for a bronze table: source columns then metadata."""
+    """Build the BigQuery schema of a bronze table.
+
+    Args:
+        source_columns: Source column names, all stored as STRING.
+
+    Returns:
+        `(name, BigQuery type)` pairs: the source columns, then the lineage
+        metadata columns.
+    """
     return [(name, "STRING") for name in source_columns] + list(METADATA_COLUMNS.items())
 
 
 def breaking_changes(old: TableContract, new: TableContract) -> list[str]:
-    """What in `new` could break consumers of `old`. Adding a column never does.
+    """List what in `new` could break consumers of `old`.
 
-    Breaking: a removed column (a rename must say `renamed_from`), a changed
-    parse kind, a required column that becomes nullable, a new primary key.
+    Adding a column never does. Breaking: a removed column (a rename must say
+    `renamed_from`), a changed parse kind, a required column that becomes
+    nullable, a new primary key.
+
+    Args:
+        old: The earlier contract version.
+        new: The next contract version of the same table.
+
+    Returns:
+        One message per breaking change; empty if `new` is compatible.
     """
     problems = []
     if new.primary_key != old.primary_key:
@@ -144,9 +183,21 @@ class ContractRegistry:
 
     @property
     def tables(self) -> list[str]:
+        """Table names, sorted."""
         return sorted(self.versions)
 
     def select(self, tables: list[str] | None) -> ContractRegistry:
+        """Narrow the registry to some tables.
+
+        Args:
+            tables: Table names to keep. None or empty keeps every table.
+
+        Returns:
+            A registry holding only the selected tables.
+
+        Raises:
+            ValueError: If a name is not a known table.
+        """
         if not tables:
             return self
         unknown = sorted(set(tables) - set(self.versions))
@@ -155,7 +206,17 @@ class ContractRegistry:
         return replace(self, versions={t: self.versions[t] for t in tables})
 
     def for_date(self, load_date: date) -> dict[str, TableContract]:
-        """The contract in force on a load date, per table."""
+        """Pick the contract version in force on a load date, per table.
+
+        Args:
+            load_date: The batch's load date.
+
+        Returns:
+            Per table, the latest version with `effective_from <= load_date`.
+
+        Raises:
+            ContractError: If a table has no version in force on that date.
+        """
         contracts = {}
         for table, versions in self.versions.items():
             in_force = [c for c in versions if c.effective_from <= load_date]
@@ -165,10 +226,16 @@ class ContractRegistry:
         return contracts
 
     def bronze_columns(self, table: str) -> list[str]:
-        """Every source column any version has had, in order of first appearance.
+        """List every source column any version of a table has had.
 
         A renamed column keeps its old name too: old batches fill the old
         column, new batches the new one, and silver merges them.
+
+        Args:
+            table: Bronze table name.
+
+        Returns:
+            Column names, in order of first appearance.
         """
         names = (c.name for version in self.versions[table] for c in version.columns)
         return list(dict.fromkeys(names))
@@ -187,6 +254,17 @@ def _parse_column(raw: dict) -> ColumnContract:
 
 
 def load_contract(path: Path) -> TableContract:
+    """Read one contract YAML file.
+
+    Args:
+        path: Path to the contract file.
+
+    Returns:
+        The parsed contract. A missing `effective_from` means the first batch.
+
+    Raises:
+        ContractError: If a column has an unknown parse kind.
+    """
     raw = yaml.safe_load(path.read_text())
     effective_from = raw.get("effective_from")
     return TableContract(
@@ -210,7 +288,21 @@ def _version_dirs(contracts_dir: Path) -> list[tuple[int, Path]]:
 
 
 def load_registry(contracts_dir: Path = CONTRACTS_DIR) -> ContractRegistry:
-    """All contract versions, checked: v1 covers every table, no change is breaking."""
+    """Load and check every contract version.
+
+    Every table must have a v1, each version number must match its folder,
+    and no version may break the one before it.
+
+    Args:
+        contracts_dir: Folder holding the `v1/`, `v2/`, ... version folders.
+
+    Returns:
+        Every table's contract versions, oldest first.
+
+    Raises:
+        FileNotFoundError: If there are no version folders.
+        ContractError: If any of the checks fails.
+    """
     dirs = _version_dirs(contracts_dir)
     if not dirs:
         raise FileNotFoundError(f"No contract versions (v1/, v2/, ...) in {contracts_dir}")
@@ -247,7 +339,17 @@ def _checks_for(column: ColumnContract) -> list[pa.Check]:
 
 
 def pandera_schema(contract: TableContract) -> pa.DataFrameSchema:
-    """Schema for the raw source frame: all Utf8, exact column set, parse checks."""
+    """Build the Pandera schema that validates a raw source frame.
+
+    Every column is Utf8, the column set must match exactly, and each column
+    gets the checks for its parse kind.
+
+    Args:
+        contract: The contract in force for the batch.
+
+    Returns:
+        A strict Pandera schema.
+    """
     return pa.DataFrameSchema(
         {
             c.name: pa.Column(pl.Utf8, checks=_checks_for(c), nullable=c.nullable)
