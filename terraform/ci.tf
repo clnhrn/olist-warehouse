@@ -22,10 +22,14 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   workload_identity_pool_provider_id = "github"
   display_name                       = "GitHub OIDC"
 
+  # repository_ref ("<repo id>:<git ref>") is what the deploy binding matches,
+  # instead of the subject: GitHub's subject format varies (this repo uses the
+  # immutable form, repo:<owner>@<id>/<name>@<id>:ref:...).
   attribute_mapping = {
-    "google.subject"          = "assertion.sub"
-    "attribute.repository"    = "assertion.repository"
-    "attribute.repository_id" = "assertion.repository_id"
+    "google.subject"           = "assertion.sub"
+    "attribute.repository"     = "assertion.repository"
+    "attribute.repository_id"  = "assertion.repository_id"
+    "attribute.repository_ref" = "assertion.repository_id + ':' + assertion.ref"
   }
   attribute_condition = "assertion.repository_id == \"${var.github_repository_id}\""
 
@@ -37,9 +41,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 locals {
   wif_pool = "iam.googleapis.com/${google_iam_workload_identity_pool.github.name}"
 
-  # The OIDC subject for a push or dispatch on main. Pull requests have the
-  # subject repo:<owner>/<repo>:pull_request, so they never match.
-  main_branch_principal = "principal://${local.wif_pool}/subject/repo:${var.github_repository}:ref:refs/heads/main"
+  # A push or dispatch on main. Pull requests have the ref
+  # refs/pull/<n>/merge, so they never match.
+  main_branch_principal = "principalSet://${local.wif_pool}/attribute.repository_ref/${var.github_repository_id}:refs/heads/main"
   repo_principal_set    = "principalSet://${local.wif_pool}/attribute.repository_id/${var.github_repository_id}"
 
   # Created by setup/bootstrap-gcp.sh, outside Terraform.
