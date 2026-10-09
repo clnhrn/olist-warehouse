@@ -72,7 +72,7 @@ Fill these in as the project takes shape.
 - Explain any technical term in one short sentence the first time it appears.
 - Keep answers short and direct.
 - Commit after each working step. Do not mix phases in one commit. Follow the commit rules below.
-- After each phase, update the README section for it and tick it off in `docs/progress.md`.
+- After each phase, update the topic doc in `docs/` it belongs to (or add one), add a README highlight only if it earns one, and tick it off in `docs/progress.md`. The README stays a short overview; detail and results go in the docs.
 - If something in the plan looks wrong or a better option exists, say so before building.
 
 ## Commits (Conventional Commits)
