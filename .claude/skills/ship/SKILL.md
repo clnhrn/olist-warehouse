@@ -34,7 +34,11 @@ Follow the Commits section of CLAUDE.md for every commit, branch and PR.
    `gh pr create` with a title that matches the main commit and a short body:
    what changed, why, and how it was checked locally. End the body with the
    PR attribution lines.
-6. **Watch CI.** The run takes a few seconds to appear. Poll for it, then
+6. **Watch CI.** `pr.yml` and `deploy.yml` both skip changes that only touch
+   `docs/**` or `**.md`. If every changed file
+   (`git diff --name-only origin/main...HEAD`) matches, no CI runs: say so,
+   skip to step 7, and skip the deploy watch in stage 2.
+   Otherwise the run takes a few seconds to appear. Poll for it, then
    watch it:
    ```bash
    for i in $(seq 1 12); do id=$(gh run list --branch <branch> --json databaseId --jq '.[0].databaseId'); [ -n "$id" ] && break; sleep 15; done
@@ -53,7 +57,10 @@ Follow the Commits section of CLAUDE.md for every commit, branch and PR.
    for the current branch (`gh pr view --json number,state,headRefName`).
    If there is none, or more than one, ask.
 2. **Check it is mergeable.** All checks must pass: `gh pr checks <n>`. If any
-   check failed or is still pending, stop and report. Don't merge.
+   check failed or is still pending, stop and report. Don't merge. A
+   docs-only PR has no checks ("no checks reported"); that is expected.
+   GitHub does not enforce checks on this repo (private, free plan: no
+   branch protection), so this step is the only gate.
 3. **Merge.** `gh pr merge <n> --merge --delete-branch`. Note the merge
    commit sha (`git log --oneline -1` on `main` after the fast-forward).
 4. **Deploy.** `deploy.yml` skips pushes that only touch `docs/**` or
