@@ -65,6 +65,7 @@ Fill these in as the project takes shape.
 - Local sessions use the dev service account (impersonation) or DuckDB. Run Python through `uv run`.
 - Use Polars `scan_csv` and lazy evaluation where possible.
 - Code style: type hints in Python, `ruff` for linting, small functions, no print statements (use logging).
+- Docstrings follow the Google style (`Args:`, `Returns:`, `Raises:`, `Attributes:`), enforced by ruff's `D` rules. Tests are exempt.
 
 ## Working style
 
