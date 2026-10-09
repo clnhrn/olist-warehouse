@@ -5,6 +5,13 @@ name: pr
 on:
   pull_request:
     branches: [main]
+    # Same filter as deploy.yml: no .md file affects the build. A PR that
+    # also changes other files still runs every check. If checks ever become
+    # required (branch protection), replace this with an in-workflow path
+    # filter, or skipped docs-only PRs can never merge.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
 permissions:
   contents: read
