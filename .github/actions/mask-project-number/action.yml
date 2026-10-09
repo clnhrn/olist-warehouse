@@ -1,0 +1,26 @@
+# GitHub masks whole secrets only. The project number sits inside the
+# WIF_PROVIDER secret (projects/<number>/locations/...), and Terraform and
+# gcloud print it in resource ids and console links, so mask it on its own.
+# Run it before any step that talks to GCP.
+name: mask project number
+description: Mask the GCP project number taken from the WIF provider name.
+
+inputs:
+  workload_identity_provider:
+    description: Full WIF provider name (projects/<number>/locations/global/...).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Mask the project number
+      shell: bash
+      env:
+        WIF_PROVIDER: ${{ inputs.workload_identity_provider }}
+      run: |
+        number=$(printf '%s' "$WIF_PROVIDER" | sed -nE 's#^projects/([0-9]+)/.*#\1#p')
+        if [ -z "$number" ]; then
+          echo "::error::WIF provider name has no project number to mask"
+          exit 1
+        fi
+        echo "::add-mask::$number"
