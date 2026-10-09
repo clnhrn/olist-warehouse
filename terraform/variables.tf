@@ -20,6 +20,18 @@ variable "alert_email" {
   default     = null
 }
 
+variable "github_repository" {
+  description = "GitHub repo (owner/name) whose Actions may use the CI service accounts."
+  type        = string
+  default     = "clnhrn/olist-warehouse"
+}
+
+variable "github_repository_id" {
+  description = "Numeric id of that repo (gh api repos/<owner>/<name> --jq .id). Public, not a secret."
+  type        = string
+  default     = "1409552597"
+}
+
 variable "ingestion_image" {
   description = "Full image URI for the ingestion Cloud Run Job. Leave null until the image is pushed."
   type        = string

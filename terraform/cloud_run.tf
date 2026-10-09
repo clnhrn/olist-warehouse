@@ -1,4 +1,6 @@
 # Each job is created only after its first image is pushed (var.*_image).
+# After that, CI owns the image (gcloud run jobs update --image), so Terraform
+# ignores it, plus the client fields gcloud stamps on the job.
 # The ingestion job's default args ingest every landed date (the scheduled run).
 # One date by hand:
 #   gcloud run jobs execute ingestion --args=ingest,--env,prod,--sink,gcs,--load-date,YYYY-MM-DD
@@ -34,6 +36,10 @@ resource "google_cloud_run_v2_job" "ingestion" {
         }
       }
     }
+  }
+
+  lifecycle {
+    ignore_changes = [client, client_version, template[0].template[0].containers[0].image]
   }
 
   depends_on = [google_project_service.apis]
@@ -72,6 +78,10 @@ resource "google_cloud_run_v2_job" "dbt" {
         }
       }
     }
+  }
+
+  lifecycle {
+    ignore_changes = [client, client_version, template[0].template[0].containers[0].image]
   }
 
   depends_on = [google_project_service.apis]

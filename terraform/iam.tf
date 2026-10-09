@@ -2,7 +2,7 @@
 # sa-dbt-prod: runs the dbt job. Reads prod bronze, writes prod silver and gold.
 # sa-orchestrator-prod: the workflow and its schedule (orchestration.tf).
 # sa-dev: used by local sessions (impersonation). Writes the dev bucket and dev_* datasets only.
-# The CI service account and Workload Identity Federation are added in Phase 8.
+# CI service accounts and Workload Identity Federation: ci.tf.
 
 resource "google_service_account" "ingestion_prod" {
   account_id   = "sa-ingestion-prod"
