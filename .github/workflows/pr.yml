@@ -1,0 +1,141 @@
+# Checks for every pull request. Authenticates as sa-ci-pr: read-only on the
+# project, write access to the dev_* datasets only. Nothing here touches prod.
+name: pr
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write  # OIDC token for Workload Identity Federation
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.10.2"
+  # Referenced here so every job masks it: GitHub masks only the secrets a
+  # job uses, and the auth action exports the project id from the SA email.
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # The dbt templater compiles against the DuckDB target: no credentials
+      # and no data needed.
+      - name: sqlfluff lint
+        working-directory: dbt
+        run: |
+          uv run dbt deps
+          uv run sqlfluff lint models
+        env:
+          OLIST_DUCKDB_PATH: ${{ runner.temp }}/lint.duckdb
+      - run: terraform fmt -check -recursive terraform
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      # Contract (Pandera) and ingestion tests. Tests that need the Olist CSVs
+      # skip themselves.
+      - run: uv run pytest
+
+  terraform-plan:
+    runs-on: ubuntu-latest
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      DEVELOPER_EMAIL: ${{ secrets.DEVELOPER_EMAIL }}
+      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.CI_PR_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: ./.github/actions/terraform-init
+      - run: terraform -chdir=terraform validate
+      # -lock=false: sa-ci-pr can only read the state bucket. The plan stays
+      # in the (masked) log; no PR comment, which would not be masked.
+      - run: terraform -chdir=terraform plan -lock=false -input=false
+
+  dbt-dev:
+    runs-on: ubuntu-latest
+    # One build of the dev datasets at a time, across all PRs.
+    concurrency:
+      group: dev-bigquery
+      cancel-in-progress: false
+    env:
+      OLIST_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.CI_PR_SA }}
+      - run: uv sync --locked
+      - name: dbt build --target dev
+        working-directory: dbt
+        run: |
+          uv run dbt deps
+          uv run dbt build --target dev
+
+  # Guardrail check: a pull request must not get a token for sa-ci-deploy,
+  # which is bound to refs/heads/main only. access_token forces the exchange
+  # (without it, auth only writes a credentials file and cannot fail here).
+  deploy-sa-denied:
+    runs-on: ubuntu-latest
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        continue-on-error: true
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.CI_DEPLOY_SA }}
+          token_format: access_token
+      - name: Expect the deploy account to be refused
+        run: test "${{ steps.auth.outcome }}" = failure
+
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [ingestion, dbt]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Build only, to catch a broken Dockerfile before it reaches main.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image }}/Dockerfile
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          push: false
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
