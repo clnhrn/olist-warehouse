@@ -23,13 +23,28 @@ DBT_LAYERS = ("silver", "gold")
 
 @dataclass(frozen=True)
 class CountChange:
+    """A table whose row count differs between the two runs.
+
+    Attributes:
+        table: Table key, `<layer>.<table>`.
+        first: Rows after the first run, or None if the table was missing.
+        second: Rows after the second run, or None if the table was missing.
+    """
+
     table: str
     first: int | None
     second: int | None
 
 
 def local_bronze_counts(lake_dir: Path) -> RowCounts:
-    """Rows per bronze table across all load_date partitions of the local lake."""
+    """Count rows per bronze table across all load_date partitions of the local lake.
+
+    Args:
+        lake_dir: Root of the local lake (the data/ folder).
+
+    Returns:
+        Row counts keyed `bronze.<table>`.
+    """
     bronze = lake_dir / "bronze"
     if not bronze.is_dir():
         return {}
@@ -45,7 +60,15 @@ def local_bronze_counts(lake_dir: Path) -> RowCounts:
 
 
 def local_warehouse_counts(duckdb_path: Path, layers: tuple[str, ...] = DBT_LAYERS) -> RowCounts:
-    """Rows per table in the local DuckDB warehouse, for the dev_<layer> schemas."""
+    """Count rows per table in the local DuckDB warehouse.
+
+    Args:
+        duckdb_path: Path to the DuckDB file.
+        layers: Layers to count, read from their `dev_<layer>` schemas.
+
+    Returns:
+        Row counts keyed `<layer>.<table>`; empty if the file does not exist.
+    """
     if not duckdb_path.is_file():
         return {}
     import duckdb  # dev dependency (with dbt-duckdb), not in the job image
@@ -66,7 +89,16 @@ def local_warehouse_counts(duckdb_path: Path, layers: tuple[str, ...] = DBT_LAYE
 
 
 def run_dbt_build(project_dir: Path, target: str) -> None:
-    """Run `dbt build` from the project folder, where profiles.yml lives."""
+    """Run `dbt build` from the project folder, where profiles.yml lives.
+
+    Args:
+        project_dir: The dbt project folder.
+        target: dbt target, such as `local` or `dev`.
+
+    Raises:
+        FileNotFoundError: If dbt is not installed.
+        subprocess.CalledProcessError: If the build fails.
+    """
     dbt = shutil.which("dbt")
     if dbt is None:
         raise FileNotFoundError("dbt not found. Run `uv sync` to install the dbt group.")
@@ -75,6 +107,16 @@ def run_dbt_build(project_dir: Path, target: str) -> None:
 
 
 def diff_counts(first: RowCounts, second: RowCounts) -> list[CountChange]:
+    """Compare two sets of row counts.
+
+    Args:
+        first: Counts after the first run.
+        second: Counts after the second run.
+
+    Returns:
+        Every table whose count differs or that exists in only one run,
+        sorted by table.
+    """
     return [
         CountChange(table, first.get(table), second.get(table))
         for table in sorted(first.keys() | second.keys())
@@ -83,7 +125,15 @@ def diff_counts(first: RowCounts, second: RowCounts) -> list[CountChange]:
 
 
 def check_rerun(run: Callable[[], None], count: Callable[[], RowCounts]) -> list[CountChange]:
-    """Run twice and return every table whose row count changed (empty means idempotent)."""
+    """Run the pipeline twice and compare row counts after each run.
+
+    Args:
+        run: Runs the pipeline once for the load date under test.
+        count: Returns the current row counts.
+
+    Returns:
+        Every table whose row count changed; empty means idempotent.
+    """
     run()
     first = count()
     run()

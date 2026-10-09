@@ -45,7 +45,14 @@ def _read(path: Path) -> pl.DataFrame:
 
 
 def sellers_with_orders_on_both_sides(source_dir: Path) -> list[str]:
-    """Sellers with at least one order before CHANGE_AT and one after, sorted by id."""
+    """Find sellers with at least one order before CHANGE_AT and one after.
+
+    Args:
+        source_dir: Folder with the orders and order items CSVs.
+
+    Returns:
+        Seller ids, sorted.
+    """
     orders = pl.scan_csv(source_dir / ORDERS, infer_schema=False).select(
         "order_id",
         pl.col("order_purchase_timestamp").str.to_datetime("%Y-%m-%d %H:%M:%S"),
@@ -68,7 +75,18 @@ def sellers_with_orders_on_both_sides(source_dir: Path) -> list[str]:
 
 
 def plan_moves(sellers: pl.DataFrame, movers: list[str]) -> dict[str, dict[str, str]]:
-    """New address per mover: the first unused, unchanged seller in another state."""
+    """Pick a new address for each moving seller.
+
+    Each mover takes the address of the first unused, unchanged seller in
+    another state.
+
+    Args:
+        sellers: The sellers table.
+        movers: Ids of the sellers that move.
+
+    Returns:
+        The new zip, city and state per mover.
+    """
     rows = {row["seller_id"]: row for row in sellers.sort("seller_id").iter_rows(named=True)}
     donors = [seller_id for seller_id in rows if seller_id not in set(movers)]
     used: set[str] = set()
@@ -85,6 +103,15 @@ def plan_moves(sellers: pl.DataFrame, movers: list[str]) -> dict[str, dict[str, 
 
 
 def apply_moves(sellers: pl.DataFrame, moves: dict[str, dict[str, str]]) -> pl.DataFrame:
+    """Give movers their new address and a seller_updated_at of CHANGE_AT.
+
+    Args:
+        sellers: The sellers table.
+        moves: New address per mover, from `plan_moves`.
+
+    Returns:
+        The sellers table with the moves applied.
+    """
     moved = pl.col("seller_id").is_in(list(moves))
     return sellers.with_columns(
         *(
@@ -106,6 +133,15 @@ def apply_moves(sellers: pl.DataFrame, moves: dict[str, dict[str, str]]) -> pl.D
 
 
 def make_batch3(source_dir: Path, out_dir: Path) -> None:
+    """Write batch 3: batch 2 with SELLERS_TO_MOVE sellers moved.
+
+    Args:
+        source_dir: Folder with batch 2.
+        out_dir: Folder to write batch 3 into; created if missing.
+
+    Raises:
+        ValueError: If too few sellers have orders on both sides of CHANGE_AT.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     for path in sorted(source_dir.glob("*.csv")):
         if path.name != SELLERS:
@@ -123,6 +159,7 @@ def make_batch3(source_dir: Path, out_dir: Path) -> None:
 
 
 def main() -> None:
+    """Parse the command line and build batch 3."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source-dir", type=Path, default=REPO_ROOT / "data" / "raw-batch2")

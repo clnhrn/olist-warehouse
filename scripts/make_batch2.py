@@ -42,6 +42,12 @@ def _read(path: Path) -> pl.DataFrame:
 
 
 def make_batch2(source_dir: Path, out_dir: Path) -> None:
+    """Write batch 2: renamed product columns, sellers with seller_updated_at.
+
+    Args:
+        source_dir: Folder with the original Olist CSVs.
+        out_dir: Folder to write batch 2 into; created if missing.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     for path in sorted(source_dir.glob("*.csv")):
         if path.name not in {PRODUCTS, SELLERS}:
@@ -60,6 +66,7 @@ def make_batch2(source_dir: Path, out_dir: Path) -> None:
 
 
 def main() -> None:
+    """Parse the command line and build batch 2."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source-dir", type=Path, default=REPO_ROOT / "data" / "raw")

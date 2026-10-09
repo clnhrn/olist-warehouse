@@ -127,6 +127,16 @@ def _rerun_step(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one ingestion command.
+
+    Args:
+        argv: Command line arguments; None reads `sys.argv`.
+
+    Returns:
+        Process exit code: 0 on success, 1 on an expected failure (bad
+        contract, missing files, failed dbt build, or a rerun that changed
+        row counts).
+    """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )

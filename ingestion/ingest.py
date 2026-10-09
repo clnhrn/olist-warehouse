@@ -33,11 +33,19 @@ MAX_QUARANTINE_FRACTION = 0.01
 
 
 class ContractViolationError(RuntimeError):
-    pass
+    """A file breaks its contract badly enough to stop the batch."""
 
 
 @dataclass(frozen=True)
 class IngestResult:
+    """Outcome of ingesting one load date.
+
+    Attributes:
+        skipped: True if the date was already loaded from identical files.
+        rows: Rows written to bronze, per table.
+        quarantined: Rows sent to quarantine, per table.
+    """
+
     skipped: bool
     rows: dict[str, int]
     quarantined: dict[str, int] = field(default_factory=dict)
@@ -45,16 +53,31 @@ class IngestResult:
 
 @dataclass(frozen=True)
 class TableLoad:
+    """Row counts from loading one table.
+
+    Attributes:
+        rows_in: Rows read from the landing CSV.
+        rows_out: Rows written to bronze.
+        rows_quarantined: Rows sent to quarantine.
+    """
+
     rows_in: int
     rows_out: int
     rows_quarantined: int
 
 
 def read_landing_csv(data: bytes) -> pl.DataFrame:
-    """Every column as Utf8, so bronze stays as-is (zip codes keep leading zeros).
+    """Read a landing CSV with every column as Utf8.
 
-    Reads from bytes because landing may be GCS; the largest file is ~60 MB.
-    Polars strips a UTF-8 BOM from the header.
+    Bronze stays as-is this way (zip codes keep leading zeros). Reads from
+    bytes because landing may be GCS; the largest file is ~60 MB. Polars
+    strips a UTF-8 BOM from the header.
+
+    Args:
+        data: The CSV file's content.
+
+    Returns:
+        The rows, all columns Utf8.
     """
     return pl.read_csv(io.BytesIO(data), infer_schema=False)
 
@@ -74,17 +97,34 @@ def _violation(contract: TableContract, failures: pl.DataFrame, reason: str) -> 
 
 
 def empty_rejected() -> pl.DataFrame:
+    """Build an empty frame of rejected rows.
+
+    Returns:
+        A frame with the `split_valid` rejected columns and no rows.
+    """
     return pl.DataFrame(
         schema={"source_row": pl.Int64, "failed_checks": pl.Utf8, "raw_record": pl.Utf8}
     )
 
 
 def split_valid(df: pl.DataFrame, contract: TableContract) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Valid rows, and rejected rows with the checks they failed.
+    """Split a raw frame into valid rows and rejected rows.
 
     Pandera gives each row-level failure (bad format, missing required value)
     the row's index; a structural failure (a missing, extra, or renamed
     column) has none and stops the batch, as does a mostly bad file.
+
+    Args:
+        df: The raw landing frame.
+        contract: The contract in force for the batch.
+
+    Returns:
+        The valid rows, and the rejected rows with `source_row`,
+        `failed_checks` and `raw_record` (the row as JSON).
+
+    Raises:
+        ContractViolationError: On a structural failure, or when more than
+            `MAX_QUARANTINE_FRACTION` of the rows fail.
     """
     try:
         pandera_schema(contract).validate(df, lazy=True)
@@ -130,6 +170,17 @@ def split_valid(df: pl.DataFrame, contract: TableContract) -> tuple[pl.DataFrame
 def add_metadata(
     df: pl.DataFrame, loaded_at: datetime, load_date: date, source_uri: str
 ) -> pl.DataFrame:
+    """Add the bronze lineage columns.
+
+    Args:
+        df: Rows to load.
+        loaded_at: When the batch was loaded.
+        load_date: The batch's load date.
+        source_uri: Location of the landing CSV.
+
+    Returns:
+        The rows plus `_loaded_at`, `_load_date` and `_source_file`.
+    """
     return df.with_columns(
         pl.lit(loaded_at, dtype=pl.Datetime("us", "UTC")).alias("_loaded_at"),
         pl.lit(load_date, dtype=pl.Date).alias("_load_date"),
@@ -138,7 +189,18 @@ def add_metadata(
 
 
 def quarantine_frame(rejected: pl.DataFrame, loaded_at: datetime, source_uri: str) -> pl.DataFrame:
-    """Rejected rows with lineage. The load date is in the file path (a partition key)."""
+    """Add lineage columns to rejected rows.
+
+    The load date is not a column: it is in the file path (a partition key).
+
+    Args:
+        rejected: Rejected rows from `split_valid`.
+        loaded_at: When the batch was loaded.
+        source_uri: Location of the landing CSV.
+
+    Returns:
+        The rejected rows plus `_loaded_at` and `_source_file`.
+    """
     return rejected.with_columns(
         pl.lit(loaded_at, dtype=pl.Datetime("us", "UTC")).alias("_loaded_at"),
         pl.lit(source_uri, dtype=pl.Utf8).alias("_source_file"),
@@ -148,11 +210,17 @@ def quarantine_frame(rejected: pl.DataFrame, loaded_at: datetime, source_uri: st
 def backfill_empty_quarantine(
     storage: Storage, contracts: dict[str, TableContract], load_date: date, loaded_at: datetime
 ) -> None:
-    """Empty quarantine files for a loaded date that has none.
+    """Write empty quarantine files for a loaded date that has none.
 
     Dates loaded before quarantine existed passed with zero rejects (a bad row
     failed the batch then), so an empty file is their true record. It also
     gives the BigQuery external table files to read once every date skips.
+
+    Args:
+        storage: The lake.
+        contracts: Contracts in force on the date, per table.
+        load_date: The batch's load date.
+        loaded_at: When the batch was originally loaded.
     """
     for table, contract in contracts.items():
         key = quarantine_key(table, load_date)
@@ -164,8 +232,16 @@ def backfill_empty_quarantine(
 
 
 def conform_to_bronze(df: pl.DataFrame, bronze_columns: list[str]) -> pl.DataFrame:
-    """Every column the bronze table has, in its order. Columns this batch's
-    contract version lacks (added later, or renamed since) are null."""
+    """Give a batch every column the bronze table has, in its order.
+
+    Args:
+        df: Valid rows under this batch's contract version.
+        bronze_columns: Every column the bronze table has, in order.
+
+    Returns:
+        The rows with exactly `bronze_columns`. Columns this batch's contract
+        version lacks (added later, or renamed since) are null.
+    """
     missing = [name for name in bronze_columns if name not in df.columns]
     return df.with_columns(pl.lit(None, dtype=pl.Utf8).alias(name) for name in missing).select(
         bronze_columns
@@ -173,6 +249,14 @@ def conform_to_bronze(df: pl.DataFrame, bronze_columns: list[str]) -> pl.DataFra
 
 
 def to_parquet_bytes(df: pl.DataFrame) -> bytes:
+    """Serialize a frame to Parquet.
+
+    Args:
+        df: The frame to write.
+
+    Returns:
+        The Parquet file's content.
+    """
     buffer = io.BytesIO()
     df.write_parquet(buffer)
     return buffer.getvalue()
@@ -213,8 +297,15 @@ def _ingest_table(
 
 
 def sync_bronze_schemas(warehouse: BigQueryWarehouse, registry: ContractRegistry) -> None:
-    """Add any column a contract version introduced to its bronze table, before
-    loading or skipping, so silver can select it even before a batch fills it."""
+    """Add any column a contract version introduced to its bronze table.
+
+    Runs before loading or skipping, so silver can select a new column even
+    before a batch fills it.
+
+    Args:
+        warehouse: The BigQuery bronze warehouse.
+        registry: Every contract version.
+    """
     for table, versions in registry.versions.items():
         warehouse.ensure_table(versions[-1], bronze_schema(registry.bronze_columns(table)))
 
@@ -227,10 +318,25 @@ def ingest(
     force: bool = False,
     run_log: RunLog | None = None,
 ) -> IngestResult:
-    """Load one date, each table validated against the contract in force on that date.
+    """Load one date, each table validated against the contract in force then.
 
     Every table gets a pipeline_runs row (loaded, skipped, or failed), written
     even when the load fails, before the error propagates.
+
+    Args:
+        storage: The lake holding landing and bronze.
+        warehouse: BigQuery bronze to load into, or None for a local run.
+        registry: Every contract version.
+        load_date: The batch's load date.
+        force: Reload even if the manifest says the files are unchanged.
+        run_log: Where to write pipeline_runs rows, if anywhere.
+
+    Returns:
+        Row counts per table, and whether the date was skipped.
+
+    Raises:
+        FileNotFoundError: If a landing file is missing.
+        ContractViolationError: If a file breaks its contract.
     """
     run_id = run_log.run_id if run_log else ""
     records: list[RunRecord] = []
@@ -364,7 +470,20 @@ def ingest_landed(
     force: bool = False,
     run_log: RunLog | None = None,
 ) -> dict[date, IngestResult]:
-    """Ingest every landed date, oldest first. The scheduled run: unchanged dates skip."""
+    """Ingest every landed date, oldest first.
+
+    This is the scheduled run: dates whose files are unchanged skip.
+
+    Args:
+        storage: The lake holding landing and bronze.
+        warehouse: BigQuery bronze to load into, or None for a local run.
+        registry: Every contract version.
+        force: Reload every date, even unchanged ones.
+        run_log: Where to write pipeline_runs rows, if anywhere.
+
+    Returns:
+        The result for each load date.
+    """
     dates = landed_dates(storage)
     if not dates:
         logger.info("No load dates in landing, nothing to ingest.")
