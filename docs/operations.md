@@ -15,7 +15,7 @@ Both images are `python:3.12-slim` plus a uv-installed virtualenv, running as a 
 - `ingestion`: ~118 MB compressed, mostly the Polars engine.
 - `dbt`: only `dbt-core` and `dbt-bigquery`, with the dbt packages baked in. A uv override drops `google-cloud-aiplatform`, which dbt-bigquery needs only for Python models: ~250 MB compressed.
 
-Each is pushed as a single `linux/amd64` manifest without build attestations, so each push is one registry version and the cleanup policy (keep 2 per image) counts whole images. CI builds and pushes them, tagged with the commit SHA ([security-and-ci.md](security-and-ci.md#merge-to-main-deployyml)).
+Each is pushed as a single `linux/amd64` manifest without build attestations, so each push is one registry version and the cleanup policy (keep 2 per image) counts whole images. CI builds and pushes them, tagged with the commit SHA ([security-and-ci.md](security-and-ci.md)).
 
 ## The daily pipeline
 
