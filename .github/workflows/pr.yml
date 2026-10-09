@@ -16,6 +16,9 @@ concurrency:
 
 env:
   UV_VERSION: "0.10.2"
+  # Referenced here so every job masks it: GitHub masks only the secrets a
+  # job uses, and the auth action exports the project id from the SA email.
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
 
 jobs:
   lint:
@@ -60,7 +63,6 @@ jobs:
   terraform-plan:
     runs-on: ubuntu-latest
     env:
-      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       DEVELOPER_EMAIL: ${{ secrets.DEVELOPER_EMAIL }}
       ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
