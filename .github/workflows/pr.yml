@@ -13,9 +13,10 @@ on:
       - "docs/**"
       - "**.md"
 
+# id-token (the OIDC token for Workload Identity Federation) is granted only
+# to the jobs that authenticate to GCP, not to lint, test, or image builds.
 permissions:
   contents: read
-  id-token: write  # OIDC token for Workload Identity Federation
 
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
@@ -69,6 +70,9 @@ jobs:
 
   terraform-plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     env:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       DEVELOPER_EMAIL: ${{ secrets.DEVELOPER_EMAIL }}
@@ -92,6 +96,9 @@ jobs:
     concurrency:
       group: dev-bigquery
       cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
     env:
       OLIST_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
     steps:
@@ -116,6 +123,9 @@ jobs:
   # (without it, auth only writes a credentials file and cannot fail here).
   deploy-sa-denied:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - id: auth
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
