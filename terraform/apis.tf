@@ -1,5 +1,5 @@
 # Bootstrap APIs (serviceusage, cloudresourcemanager, storage) are enabled by
-# setup/bootstrap-gcp.sh. STS (for Workload Identity Federation) comes in Phase 8.
+# setup/bootstrap-gcp.sh. STS exchanges GitHub's OIDC token (ci.tf).
 locals {
   apis = [
     "artifactregistry.googleapis.com",
@@ -9,6 +9,7 @@ locals {
     "iamcredentials.googleapis.com",
     "monitoring.googleapis.com",
     "run.googleapis.com",
+    "sts.googleapis.com",
     "workflowexecutions.googleapis.com",
     "workflows.googleapis.com",
   ]
