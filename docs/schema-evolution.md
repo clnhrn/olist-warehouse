@@ -38,4 +38,28 @@ A blocked change is a code change, not an operations task: add the contract vers
 Batch 2 (`load_date=2016-02-01`) simulates both accepted cases. It is a full snapshot of all 9 files, built from the originals by [`scripts/make_batch2.py`](../scripts/make_batch2.py):
 
 - `products` v2: `product_name_lenght` and `product_description_lenght` renamed to `..._length`.
-- `sellers` v2: new required column `seller_updated_at`. No seller changes yet, so every value is the 2016-01-01 baseline. Phase 6 adds seller changes in a later batch.
+- `sellers` v2: new required column `seller_updated_at`. No seller changes yet, so every value is the 2016-01-01 baseline. Batch 3 adds seller changes ([scd2.md](scd2.md)).
+
+```
+contracts/v1/   all 9 tables, from the first batch
+contracts/v2/   products.yaml, sellers.yaml   (effective_from: 2016-02-01)
+```
+
+## Result
+
+On the full dataset, locally (DuckDB), in dev BigQuery, and in prod:
+
+- Bronze doubled (two full batches). Every silver and gold table kept its row count, and every silver row now comes from batch 2.
+- `silver_sellers.updated_at` is set for all 3,095 sellers. Lengths are set for 32,341 products, the same as before (610 products have none in the source).
+- Revenue is unchanged at BRL 13,494,400.74.
+- `check-rerun` left all 28 tables unchanged for batch 2, and for batch 1 rerun under v1 after v2 took effect.
+- In prod, the scheduled workflow's ingestion step added the v2 columns to `bronze.products` and `bronze.sellers`, skipped batch 1, and loaded batch 2. All 28 tables match dev.
+
+## How to run
+
+```bash
+uv run python scripts/make_batch2.py     # data/raw -> data/raw-batch2
+uv run python -m ingestion land   --load-date 2016-02-01 --source-dir data/raw-batch2 --sink local
+uv run python -m ingestion ingest --all-dates --sink local
+cd dbt && uv run dbt build --target local
+```
