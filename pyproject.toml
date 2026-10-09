@@ -42,8 +42,15 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-# T20: no print statements, use logging.
-select = ["E", "F", "I", "UP", "B", "SIM", "T20"]
+# T20: no print statements, use logging. D: docstrings (Google style).
+select = ["E", "F", "I", "UP", "B", "SIM", "T20", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Test names say what they check; docstrings stay optional there.
+"tests/**" = ["D"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
