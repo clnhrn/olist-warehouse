@@ -16,16 +16,24 @@ runs:
     # variables gate the jobs' creation, so pass the images they run now.
     - name: Export Terraform variables
       shell: bash
+      # Assigned first, so a failed describe stops the step instead of
+      # exporting an empty image.
       run: |
         image() {
           gcloud run jobs describe "$1" --region=us-central1 \
             --format='value(spec.template.spec.template.spec.containers[0].image)'
         }
+        ingestion_image=$(image ingestion)
+        dbt_image=$(image dbt)
+        if [ -z "$ingestion_image" ] || [ -z "$dbt_image" ]; then
+          echo "::error::Could not read the jobs' current images"
+          exit 1
+        fi
         {
           echo "TF_VAR_project_id=$GCP_PROJECT_ID"
           echo "TF_VAR_developer_email=$DEVELOPER_EMAIL"
-          echo "TF_VAR_ingestion_image=$(image ingestion)"
-          echo "TF_VAR_dbt_image=$(image dbt)"
+          echo "TF_VAR_ingestion_image=$ingestion_image"
+          echo "TF_VAR_dbt_image=$dbt_image"
           if [ -n "$ALERT_EMAIL" ]; then echo "TF_VAR_alert_email=$ALERT_EMAIL"; fi
         } >> "$GITHUB_ENV"
 
