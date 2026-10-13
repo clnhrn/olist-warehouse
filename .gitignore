@@ -71,3 +71,7 @@ CLAUDE.local.md
 .idea/
 .DS_Store
 Thumbs.db
+
+# Chainlit runtime files (uploads cache; translations are generated at startup)
+agent/ui/.files/
+agent/ui/.chainlit/translations/
