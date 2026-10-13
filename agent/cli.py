@@ -1,6 +1,7 @@
 """Command line entry point.
 
-python -m agent ask "question" [--target local|dev]
+python -m agent ask "question" [--target local|dev] [--json]
+python -m agent eval [--target local|dev] [--ids ID ...] [--min-accuracy 0.8]
 
 local queries DuckDB (data/warehouse.duckdb); dev queries BigQuery dev_gold as
 sa-agent-dev. There is no prod target here: prod runs only in Cloud Run.
@@ -14,8 +15,9 @@ import logging
 import sys
 
 from agent.config import Target
+from agent.eval import load_questions, run_eval, write_report
 from agent.llm import AgentAnswer
-from agent.runtime import build_runtime
+from agent.runtime import Runtime, build_runtime
 
 logger = logging.getLogger("agent")
 
@@ -32,6 +34,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ask.add_argument("question")
     ask.add_argument("--target", type=Target, choices=LOCAL_TARGETS, default=Target.LOCAL)
     ask.add_argument("--json", action="store_true", help="Print the answer as JSON.")
+    evaluate = sub.add_parser("eval", help="Run the eval set and write a report.")
+    evaluate.add_argument("--target", type=Target, choices=LOCAL_TARGETS, default=Target.LOCAL)
+    evaluate.add_argument("--ids", nargs="+", help="Run only these question ids.")
+    evaluate.add_argument(
+        "--min-accuracy", type=float, help="Exit 1 when accuracy is below this (0 to 1)."
+    )
     return parser.parse_args(argv)
 
 
@@ -88,6 +96,24 @@ def _to_json(answer: AgentAnswer) -> str:
     )
 
 
+def _run_eval(runtime: Runtime, ids: list[str] | None, min_accuracy: float | None) -> int:
+    questions = load_questions()
+    if ids:
+        unknown = sorted(set(ids) - {q.id for q in questions})
+        if unknown:
+            raise SystemExit(f"Unknown question ids: {unknown}")
+        questions = [q for q in questions if q.id in ids]
+    report = run_eval(runtime, questions)
+    json_path, md_path = write_report(report)
+    summary = report.summary()
+    sys.stdout.write(json.dumps(summary, indent=2) + "\n")
+    logger.info("Report: %s and %s", json_path, md_path)
+    if min_accuracy is not None and (summary["accuracy"] or 0) < min_accuracy:
+        logger.error("Accuracy %.2f is below %.2f", summary["accuracy"] or 0, min_accuracy)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI.
 
@@ -95,11 +121,14 @@ def main(argv: list[str] | None = None) -> int:
         argv: Arguments; `sys.argv[1:]` when None.
 
     Returns:
-        0 when answered or rightly refused, 1 when the question failed.
+        For ask: 0 when answered or refused, 1 when the question failed.
+        For eval: 0, or 1 when accuracy is below --min-accuracy.
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = _parse_args(argv)
     runtime = build_runtime(args.target)
+    if args.command == "eval":
+        return _run_eval(runtime, args.ids, args.min_accuracy)
     answer = runtime.ask(args.question)
     sys.stdout.write(_to_json(answer) + "\n" if args.json else _format_answer(answer))
     return 1 if answer.status == "failed" else 0
