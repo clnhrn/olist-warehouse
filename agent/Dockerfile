@@ -1,4 +1,4 @@
-# Streamlit UI for the text-to-SQL agent, for the private Cloud Run service.
+# Chainlit UI for the text-to-SQL agent, for the private Cloud Run service.
 # Build from the repo root (test only; CI pushes):
 #   docker build --platform=linux/amd64 --provenance=false --sbom=false \
 #     -f agent/Dockerfile -t agent .
@@ -33,12 +33,12 @@ RUN useradd --create-home --uid 1000 app
 WORKDIR /app
 COPY --from=builder --chown=app:app /app /app
 
+# CHAINLIT_APP_ROOT holds the UI config, theme, and readme; Chainlit writes
+# its translations and element files there at runtime (owned by app).
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    OLIST_AGENT_TARGET=prod \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-    STREAMLIT_SERVER_HEADLESS=true
+    CHAINLIT_APP_ROOT=/app/agent/ui
 USER app
 
-# Cloud Run sets PORT (8080).
-CMD ["sh", "-c", "exec streamlit run agent/app.py --server.address=0.0.0.0 --server.port=${PORT:-8080}"]
+# Cloud Run sets PORT (8080). On Cloud Run the app is fixed to prod.
+CMD ["sh", "-c", "exec chainlit run agent/ui/app.py --headless --host 0.0.0.0 --port ${PORT:-8080}"]

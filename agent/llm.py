@@ -14,8 +14,9 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from agent.config import API_KEY_SECRET, AgentSettings, Target
 from agent.guard import UnsafeSqlError, guard_sql
@@ -265,6 +266,36 @@ class AgentAnswer:
         return self.usage.cost_usd(self.model)
 
 
+@dataclass(frozen=True)
+class ProgressEvent:
+    """Something the agent just did, for a UI to show while it works.
+
+    Attributes:
+        kind: `query_started`, `query_finished`, or `answer_rejected`.
+        sql: SQL as Claude wrote it (query events).
+        attempt: The finished attempt (`query_finished`).
+        message: Why the answer was sent back (`answer_rejected`).
+    """
+
+    kind: Literal["query_started", "query_finished", "answer_rejected"]
+    sql: str | None = None
+    attempt: Attempt | None = None
+    message: str | None = None
+
+
+Progress = Callable[[ProgressEvent], None]
+
+
+def _notify(progress: Progress | None, event: ProgressEvent) -> None:
+    """Send an event to the UI; a broken UI callback must not break the answer."""
+    if progress is None:
+        return
+    try:
+        progress(event)
+    except Exception:  # The answer matters more than the progress display.
+        logger.warning("Progress callback failed for %s", event.kind, exc_info=True)
+
+
 class MessagesClient(Protocol):
     """The one Messages API call the agent makes (a fake in tests)."""
 
@@ -364,12 +395,15 @@ class SqlAgent:
             }
         ]
 
-    def _run_sql(self, sql: str, answer: AgentAnswer) -> dict[str, Any]:
+    def _run_sql(
+        self, sql: str, answer: AgentAnswer, progress: Progress | None = None
+    ) -> dict[str, Any]:
         """Guard and run one query, recording the attempt.
 
         Returns:
             The tool result content for Claude, with `is_error` on failure.
         """
+        _notify(progress, ProgressEvent("query_started", sql=sql))
         guarded = None
         try:
             guarded = guard_sql(
@@ -381,10 +415,12 @@ class SqlAgent:
             )
             result = self.warehouse.run(guarded.sql)
         except (UnsafeSqlError, WarehouseError) as error:
-            answer.attempts.append(
-                Attempt(sql=sql, guarded_sql=guarded.sql if guarded else None, error=str(error))
+            failed = Attempt(
+                sql=sql, guarded_sql=guarded.sql if guarded else None, error=str(error)
             )
+            answer.attempts.append(failed)
             answer.error = str(error)
+            _notify(progress, ProgressEvent("query_finished", sql=sql, attempt=failed))
             return {"content": f"Error: {error}", "is_error": True}
 
         answer.attempts.append(
@@ -396,6 +432,7 @@ class SqlAgent:
             )
         )
         answer.result, answer.sql, answer.error = result, guarded.sql, None
+        _notify(progress, ProgressEvent("query_finished", sql=sql, attempt=answer.attempts[-1]))
         answer.results.append(result)
         payload = {
             "columns": list(result.columns),
@@ -414,7 +451,9 @@ class SqlAgent:
         """
         return self.settings.max_attempts + MAX_ANSWER_REJECTIONS + 3
 
-    def _check_answer(self, tool_input: dict[str, Any], answer: AgentAnswer) -> dict[str, Any]:
+    def _check_answer(
+        self, tool_input: dict[str, Any], answer: AgentAnswer, progress: Progress | None = None
+    ) -> dict[str, Any]:
         """Render the answer's placeholders, or say what to fix.
 
         Returns:
@@ -429,6 +468,7 @@ class SqlAgent:
         except TemplateError as error:
             if answer.answer_rejections < MAX_ANSWER_REJECTIONS:
                 answer.answer_rejections += 1
+                _notify(progress, ProgressEvent("answer_rejected", message=str(error)))
                 return {"content": f"Not recorded. {error}", "is_error": True}
             answer.status, answer.error = "failed", f"Explanation could not be rendered: {error}"
             answer.explanation_template = template
@@ -443,7 +483,9 @@ class SqlAgent:
             answer.error = answer.error or "Answered without a successful query."
         return {"content": "Recorded.", "final": True}
 
-    def _handle_tools(self, tool_uses: list[Any], answer: AgentAnswer) -> tuple[list, bool]:
+    def _handle_tools(
+        self, tool_uses: list[Any], answer: AgentAnswer, progress: Progress | None = None
+    ) -> tuple[list, bool]:
         """Run every tool call of one response.
 
         Returns:
@@ -452,7 +494,7 @@ class SqlAgent:
         results, final = [], False
         for block in tool_uses:
             if block.name == "answer":
-                content: dict[str, Any] = self._check_answer(block.input, answer)
+                content: dict[str, Any] = self._check_answer(block.input, answer, progress)
                 final = content.pop("final", False) or final
             elif block.name != "run_sql":
                 content = {"content": f"Unknown tool {block.name}.", "is_error": True}
@@ -462,17 +504,24 @@ class SqlAgent:
                     "is_error": True,
                 }
             else:
-                content = self._run_sql(block.input["sql"], answer)
+                content = self._run_sql(block.input["sql"], answer, progress)
             results.append({"type": "tool_result", "tool_use_id": block.id, **content})
         return results, final
 
-    def ask(self, question: str, history: list[tuple[str, str]] | None = None) -> AgentAnswer:
+    def ask(
+        self,
+        question: str,
+        history: list[tuple[str, str]] | None = None,
+        progress: Progress | None = None,
+    ) -> AgentAnswer:
         """Answer one question.
 
         Args:
             question: The user's question.
             history: Earlier (question, explanation) pairs of the same
                 conversation, oldest first, for follow-up questions.
+            progress: Called with each `ProgressEvent` as the agent works, so
+                a UI can show live steps. Errors in it are logged, not raised.
 
         Returns:
             The answer, with every attempt and the token usage. Never raises
@@ -523,7 +572,7 @@ class SqlAgent:
                     }
                 )
                 continue
-            results, final = self._handle_tools(tool_uses, answer)
+            results, final = self._handle_tools(tool_uses, answer, progress)
             if final:
                 break
             messages.append({"role": "user", "content": results})

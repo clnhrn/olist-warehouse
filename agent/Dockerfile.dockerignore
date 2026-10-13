@@ -9,3 +9,5 @@
 **/__pycache__
 agent/Dockerfile*
 agent/evals/
+agent/ui/.files/
+agent/ui/.chainlit/translations/

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from agent.warehouse import QueryResult
 
 if TYPE_CHECKING:
-    import altair as alt
+    import plotly.graph_objects as go
 
 CHART_KINDS = ("bar", "line", "scatter")
 
@@ -53,85 +53,88 @@ def chart_problems(spec: dict[str, Any] | None, result: QueryResult | None) -> l
     return problems
 
 
-def _field_type(values: list[Any]) -> str:
-    """Pick the Vega-Lite type of a column: quantitative, ordinal, or nominal."""
-    present = [v for v in values if v is not None]
-    if present and all(_is_number(v) for v in present):
-        return "quantitative"
-    # Months, dates, and timestamps as text sort correctly as ordinal values.
-    if present and all(isinstance(v, str) and v[:4].isdigit() for v in present):
-        return "ordinal"
-    return "nominal"
+# Teal for one series; a colorblind-safe palette when there are several.
+SINGLE_COLOR = "#0f9488"
+SERIES_COLORS = ["#0f9488", "#2563eb", "#d97706", "#db2777", "#7c3aed", "#65a30d", "#0891b2"]
 
 
-def build_chart(spec: dict[str, Any], result: QueryResult) -> alt.Chart | alt.LayerChart:
-    """Build an interactive chart from a valid spec and the rows it plots.
+def _hover_format(values: list[Any]) -> str:
+    """Integers without decimals, other numbers with 2."""
+    numbers = [v for v in values if _is_number(v)]
+    return ",.0f" if numbers and all(float(v).is_integer() for v in numbers) else ",.2f"
 
-    Every chart has tooltips, zoom and pan (mouse wheel and drag, double-click
-    to reset), and, with a series, a clickable legend that highlights one
-    series. Line charts add a hover rule showing the values at the nearest x.
+
+def build_chart(spec: dict[str, Any], result: QueryResult) -> go.Figure:
+    """Build an interactive Plotly chart from a valid spec and the rows it plots.
+
+    Every chart has tooltips, zoom and pan (drag to zoom, double-click to
+    reset), and a clickable legend when there is a series (click hides one,
+    double-click isolates one). Line charts use a unified hover that shows
+    every series at the nearest x.
 
     Args:
         spec: A chart spec with no `chart_problems`.
         result: The query result to plot. The chart uses only its rows.
 
     Returns:
-        An Altair chart, drawn in the browser by Vega-Lite.
+        A Plotly figure, drawn in the browser.
     """
-    import altair as alt
-    import pandas as pd
+    import plotly.graph_objects as go
 
-    data = pd.DataFrame(list(result.rows), columns=list(result.columns))
     kind, x, y, series = spec["type"], spec["x"], spec["y"], spec.get("series")
-    x_type = _field_type(data[x].tolist())
-    if kind == "scatter" and x_type != "quantitative":
-        x_type = "nominal"
+    xi, yi = result.columns.index(x), result.columns.index(y)
+    groups: dict[Any, list[tuple[Any, Any]]] = {}
+    for row in result.rows:
+        key = row[result.columns.index(series)] if series else None
+        groups.setdefault(key, []).append((row[xi], row[yi]))
 
-    x_enc = alt.X(x, type=x_type, title=x)
-    y_enc = alt.Y(y, type="quantitative", title=y)
-    tooltip = [alt.Tooltip(x, type=x_type)]
-    if series:
-        tooltip.append(alt.Tooltip(series, type="nominal"))
-    tooltip.append(alt.Tooltip(y, type="quantitative", format=",.2f"))
+    y_format = _hover_format([row[yi] for row in result.rows])
+    figure = go.Figure()
+    for number, (key, points) in enumerate(groups.items()):
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        name = str(key) if series else y
+        color = SERIES_COLORS[number % len(SERIES_COLORS)] if series else SINGLE_COLOR
+        hover = f"{y}: %{{y:{y_format}}}<extra>{name if series else ''}</extra>"
+        if kind == "bar":
+            trace = go.Bar(x=xs, y=ys, name=name, marker_color=color, hovertemplate=hover)
+        elif kind == "scatter":
+            trace = go.Scatter(
+                x=xs,
+                y=ys,
+                name=name,
+                mode="markers",
+                marker={"color": color, "size": 9},
+                hovertemplate=f"{x}: %{{x}}<br>{hover}",
+            )
+        else:
+            trace = go.Scatter(
+                x=xs,
+                y=ys,
+                name=name,
+                mode="lines+markers",
+                line={"color": color, "width": 2.5},
+                marker={"size": 6},
+                hovertemplate=hover,
+            )
+        figure.add_trace(trace)
 
-    # Zoom and pan: scales follow the mouse. Bars and categories zoom on y only.
-    zoom_axes = ["x", "y"] if x_type == "quantitative" else ["y"]
-    zoom = alt.selection_interval(bind="scales", encodings=zoom_axes, name="zoom")
-
-    base = alt.Chart(data, title=spec.get("title") or "").encode(x=x_enc, y=y_enc)
-    params: list[Any] = [zoom]
-    opacity: Any = alt.value(1)
-    if series:
-        legend = alt.selection_point(fields=[series], bind="legend", name="legend")
-        params.append(legend)
-        base = base.encode(color=alt.Color(series, type="nominal"))
-        opacity = alt.when(legend).then(alt.value(1)).otherwise(alt.value(0.15))
-
-    if kind == "bar":
-        offset = {"xOffset": alt.XOffset(series, type="nominal")} if series else {}
-        return (
-            base.mark_bar().encode(opacity=opacity, tooltip=tooltip, **offset).add_params(*params)
-        )
-    if kind == "scatter":
-        return (
-            base.mark_circle(size=70).encode(opacity=opacity, tooltip=tooltip).add_params(*params)
-        )
-
-    # Line: the hover rule follows the nearest x and shows every series there.
-    hover = alt.selection_point(
-        fields=[x], nearest=True, on="pointerover", empty=False, name="hover"
+    figure.update_layout(
+        title={"text": spec.get("title") or "", "x": 0, "font": {"size": 16}},
+        hovermode="x unified" if kind == "line" else "closest",
+        dragmode="zoom",
+        showlegend=bool(series),
+        legend={
+            "orientation": "h",
+            "y": -0.2,
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers",
+        },
+        barmode="group",
+        margin={"l": 10, "r": 10, "t": 50, "b": 10},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": "Inter, system-ui, sans-serif"},
+        xaxis={"title": x, "showgrid": False, "type": "category" if kind != "scatter" else None},
+        yaxis={"title": y, "gridcolor": "rgba(128,128,128,0.2)", "tickformat": "~s"},
     )
-    lines = base.mark_line(point=True).encode(opacity=opacity).add_params(*params)
-    catcher = (
-        base.mark_point(size=120).encode(opacity=alt.value(0), tooltip=tooltip).add_params(hover)
-    )
-    rule = (
-        alt.Chart(data)
-        .mark_rule(color="gray")
-        .encode(x=x_enc, tooltip=tooltip)
-        .transform_filter(hover)
-    )
-    points = base.mark_circle(size=70).encode(
-        opacity=alt.when(hover).then(alt.value(1)).otherwise(alt.value(0))
-    )
-    return alt.layer(lines, catcher, rule, points)
+    return figure

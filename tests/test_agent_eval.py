@@ -140,37 +140,37 @@ MONTHLY = result(
 )
 
 
-def chart_json(kind, series):
-    import json
-
+def figure(kind, series):
     from agent.chart import build_chart
 
     spec = {"type": kind, "x": "year_month", "y": "revenue", "series": series, "title": "t"}
-    return json.dumps(build_chart(spec, MONTHLY).to_dict())
+    return build_chart(spec, MONTHLY).to_dict()
 
 
 @pytest.mark.parametrize("kind", ["line", "bar", "scatter"])
 @pytest.mark.parametrize("series", [None, "state"])
 def test_every_chart_has_tooltips_and_zoom(kind, series):
-    spec = chart_json(kind, series)
-    assert '"tooltip"' in spec
-    assert '"bind": "scales"' in spec
+    fig = figure(kind, series)
+    assert all(trace["hovertemplate"] for trace in fig["data"])
+    assert fig["layout"]["dragmode"] == "zoom"
+    assert not fig["layout"]["xaxis"].get("fixedrange")
+    assert not fig["layout"]["yaxis"].get("fixedrange")
 
 
-@pytest.mark.parametrize("kind", ["line", "bar"])
+@pytest.mark.parametrize("kind", ["line", "bar", "scatter"])
 def test_series_get_a_clickable_legend(kind):
-    assert '"bind": "legend"' in chart_json(kind, "state")
+    fig = figure(kind, "state")
+    assert fig["layout"]["showlegend"] is True
+    assert fig["layout"]["legend"]["itemclick"] == "toggle"
+    assert fig["layout"]["legend"]["itemdoubleclick"] == "toggleothers"
+    assert [trace["name"] for trace in fig["data"]] == ["SP", "RJ"]
 
 
-def test_line_charts_have_a_hover_rule():
-    spec = chart_json("line", "state")
-    assert '"rule"' in spec
-    assert '"nearest": true' in spec
+def test_line_charts_have_a_unified_hover():
+    assert figure("line", "state")["layout"]["hovermode"] == "x unified"
 
 
 def test_chart_plots_only_the_result_rows():
-    import json
-
-    spec = json.loads(chart_json("line", "state"))
-    datasets = list(spec["datasets"].values())
-    assert all(len(rows) == len(MONTHLY.rows) for rows in datasets)
+    fig = figure("line", "state")
+    plotted = sorted(y for trace in fig["data"] for y in trace["y"])
+    assert plotted == sorted(row[2] for row in MONTHLY.rows)

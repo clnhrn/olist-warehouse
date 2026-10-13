@@ -288,3 +288,35 @@ def test_text_twice_fails_instead_of_showing_unchecked_numbers(schema):
 
     assert answer.status == "failed"
     assert "instead of with the answer tool" in answer.error
+
+
+def test_progress_events_follow_the_work(schema):
+    messages = FakeMessages(
+        response(tool_use("run_sql", {"sql": "SELECT nope FROM gold.fact_orders"})),
+        response(tool_use("run_sql", COUNT_SQL)),
+        response(answer_call(explanation="About 99,400 orders.")),
+        response(answer_call(explanation="There are {{r1.orders:int}} orders.")),
+    )
+    warehouse = FakeWarehouse(WarehouseError("column nope not found"), BIG)
+    events = []
+    make_agent(schema, messages, warehouse).ask("How many?", progress=events.append)
+
+    assert [e.kind for e in events] == [
+        "query_started",
+        "query_finished",
+        "query_started",
+        "query_finished",
+        "answer_rejected",
+    ]
+    assert events[1].attempt.error == "column nope not found"
+    assert events[3].attempt.rows == 1
+    assert "99,400" in events[4].message
+
+
+def test_a_broken_progress_callback_does_not_break_the_answer(schema):
+    def broken(event):
+        raise RuntimeError("UI went away")
+
+    messages = FakeMessages(response(tool_use("run_sql", COUNT_SQL)), response(answer_call()))
+    answer = make_agent(schema, messages, FakeWarehouse(BIG)).ask("?", progress=broken)
+    assert answer.status == "answered"
