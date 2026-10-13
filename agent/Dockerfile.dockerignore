@@ -1,0 +1,11 @@
+# Allowlist for agent/Dockerfile (BuildKit reads <Dockerfile>.dockerignore).
+*
+!pyproject.toml
+!uv.lock
+!contracts/
+!ingestion/
+!agent/
+!dbt/models/gold/_gold__*.yml
+**/__pycache__
+agent/Dockerfile*
+agent/evals/

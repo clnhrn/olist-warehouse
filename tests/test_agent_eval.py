@@ -126,3 +126,51 @@ def test_chart_question_checks_type_and_series():
     assert scored.chart_ok is False
     assert "not in ['line']" in scored.reason
     assert "needs a series" in scored.reason
+
+
+# Interactive charts --------------------------------------------------------
+
+MONTHLY = result(
+    ["year_month", "state", "revenue"],
+    *[
+        [f"2018-0{m}", s, float(m * 100 + i)]
+        for m in range(1, 5)
+        for i, s in enumerate(["SP", "RJ"])
+    ],
+)
+
+
+def chart_json(kind, series):
+    import json
+
+    from agent.chart import build_chart
+
+    spec = {"type": kind, "x": "year_month", "y": "revenue", "series": series, "title": "t"}
+    return json.dumps(build_chart(spec, MONTHLY).to_dict())
+
+
+@pytest.mark.parametrize("kind", ["line", "bar", "scatter"])
+@pytest.mark.parametrize("series", [None, "state"])
+def test_every_chart_has_tooltips_and_zoom(kind, series):
+    spec = chart_json(kind, series)
+    assert '"tooltip"' in spec
+    assert '"bind": "scales"' in spec
+
+
+@pytest.mark.parametrize("kind", ["line", "bar"])
+def test_series_get_a_clickable_legend(kind):
+    assert '"bind": "legend"' in chart_json(kind, "state")
+
+
+def test_line_charts_have_a_hover_rule():
+    spec = chart_json("line", "state")
+    assert '"rule"' in spec
+    assert '"nearest": true' in spec
+
+
+def test_chart_plots_only_the_result_rows():
+    import json
+
+    spec = json.loads(chart_json("line", "state"))
+    datasets = list(spec["datasets"].values())
+    assert all(len(rows) == len(MONTHLY.rows) for rows in datasets)
