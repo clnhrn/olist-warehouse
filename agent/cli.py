@@ -81,6 +81,8 @@ def _to_json(answer: AgentAnswer) -> str:
             "query_id": answer.query_id,
             "status": answer.status,
             "explanation": answer.explanation,
+            "explanation_template": answer.explanation_template,
+            "answer_rejections": answer.answer_rejections,
             "sql": answer.sql,
             "columns": list(answer.result.columns) if answer.result else None,
             "rows": answer.result.records() if answer.result else None,

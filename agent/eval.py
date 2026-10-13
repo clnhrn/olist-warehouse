@@ -81,6 +81,7 @@ class EvalResult:
         faithful: Whether every number in the explanation is backed by the
             result. None when there is no result to check against.
         unsupported: Numbers in the explanation that no result cell backs.
+        answer_rejections: Answers sent back to fix their placeholders.
         attempts: SQL attempts.
         bytes_billed: BigQuery bytes billed by the agent.
         cost_usd: LLM cost.
@@ -100,6 +101,7 @@ class EvalResult:
     chart_ok: bool | None = None
     faithful: bool | None = None
     unsupported: list[str] = field(default_factory=list)
+    answer_rejections: int = 0
     attempts: int = 0
     bytes_billed: int = 0
     cost_usd: float = 0.0
@@ -150,6 +152,7 @@ class EvalReport:
             "refusals": sum(1 for r in scored if r.compare == "refusal"),
             "explanations_faithful": sum(bool(r.faithful) for r in checked),
             "explanations_checked": len(checked),
+            "answers_sent_back": sum(r.answer_rejections for r in self.results),
             "charts_ok": sum(bool(r.chart_ok) for r in charts),
             "charts": len(charts),
             "cost_usd": round(sum(r.cost_usd for r in self.results), 4),
@@ -417,6 +420,7 @@ def score(question: EvalQuestion, answer: AgentAnswer, expected: QueryResult | N
         chart_ok=chart_ok,
         faithful=faithful,
         unsupported=unsupported,
+        answer_rejections=answer.answer_rejections,
         attempts=len(answer.attempts),
         bytes_billed=answer.bytes_billed,
         cost_usd=round(answer.cost_usd or 0.0, 6),
@@ -479,6 +483,7 @@ def render_markdown(report: EvalReport) -> str:
         f"- Charts valid: {s['charts_ok']}/{s['charts']}",
         f"- Explanations faithful (every number from the result): "
         f"{s['explanations_faithful']}/{s['explanations_checked']}",
+        f"- Answers sent back to fix placeholders: {s['answers_sent_back']}",
         f"- LLM cost: ${s['cost_usd']:.2f} total, ${s['cost_per_question_usd']:.4f} per question",
         f"- BigQuery bytes billed: {s['bytes_billed']:,}",
         f"- Mean latency: {s['mean_latency_ms']:,} ms",

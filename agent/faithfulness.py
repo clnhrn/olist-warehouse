@@ -93,8 +93,17 @@ def stated_numbers(text: str) -> list[StatedNumber]:
     return numbers
 
 
-def _is_claim(number: StatedNumber, question_values: set[float]) -> bool:
-    """Whether a stated number is a claim about the data that needs support."""
+def is_claim(number: StatedNumber, question_values: set[float]) -> bool:
+    """Tell whether a stated number is a claim about the data that needs support.
+
+    Args:
+        number: A number from the text.
+        question_values: Values of the numbers in the question.
+
+    Returns:
+        False for years, small integers (ranks, months, scores), and numbers
+        the question already contains; True otherwise.
+    """
     whole = number.decimals == 0 and number.scale == 1 and not number.percent
     if whole and number.written <= SMALL_INTEGER_MAX:
         return False
@@ -135,7 +144,7 @@ def unsupported_numbers(
         The unsupported numbers as written, empty when every claim is backed.
     """
     question_values = {n.value for n in stated_numbers(question)}
-    claims = [n for n in stated_numbers(explanation) if _is_claim(n, question_values)]
+    claims = [n for n in stated_numbers(explanation) if is_claim(n, question_values)]
     if not claims:
         return []
     cells = [

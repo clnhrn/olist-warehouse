@@ -20,11 +20,16 @@ from typing import Any, Protocol
 from agent.config import API_KEY_SECRET, AgentSettings, Target
 from agent.guard import UnsafeSqlError, guard_sql
 from agent.schema import WarehouseSchema, render_schema
+from agent.template import TemplateError, render
 from agent.warehouse import QueryResult, Warehouse, WarehouseError
 
 logger = logging.getLogger(__name__)
 
 MAX_TOKENS = 16000
+# Answers sent back for a fix (bad placeholder, number written out) before
+# the question fails. Each costs one model call.
+MAX_ANSWER_REJECTIONS = 2
+REMINDER = "Finish by calling the answer tool, with placeholders for numbers."
 ROWS_SHOWN_TO_MODEL = 50
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # USD per million tokens: input, output, cache write (5 min), cache read.
@@ -72,8 +77,10 @@ TOOLS: list[dict[str, Any]] = [
                 "explanation": {
                     "type": "string",
                     "description": (
-                        "1 to 3 sentences for a business reader, using numbers from "
-                        "the result only."
+                        "1 to 3 sentences for a business reader. Write every number "
+                        "about the data as a placeholder {{r<row>.<column>:<format>}} "
+                        "naming a cell of the last query result; code fills in the "
+                        "exact value. Formats: int, num, money, pct (for a 0-1 rate)."
                     ),
                 },
                 "chart": {
@@ -119,11 +126,18 @@ for a seller's current attributes.
 - Dimensions have an unknown member (key '-1', or -1 for dates); leave it in \
 counts unless the question excludes it.
 - If a query fails, read the error and fix the query.
-- Every number in your answer must appear in a query result. Compute derived \
-numbers (growth, shares, differences, ratios, unit conversions) in SQL, or leave \
-them out.
+- Compute derived numbers (growth, shares, differences, ratios, unit \
+conversions) in SQL, so they are cells of the result.
 
-Finish with the answer tool. Base the explanation only on rows you received. If \
+Finish with the answer tool. Base the explanation only on rows you received. \
+Never write a number about the data yourself: write a placeholder naming a cell \
+of the last query result, and code fills in the exact value. The syntax is \
+{{{{r<row>.<column>:<format>}}}}, rows counted from 1, with format int, num \
+(2 decimals), money (BRL), or pct (a rate from 0 to 1 shown as a percentage). For \
+example: "Revenue was {{{{r1.revenue:money}}}} across {{{{r1.orders:int}}}} \
+orders, and {{{{r1.late_rate:pct}}}} arrived late." Years, dates, and numbers \
+from the question may be written as is. If a number you want is not in the last \
+result, add it to the query or leave it out. If \
 the data cannot answer the question, or the question asks to change data, call \
 answer with status refused and say why. Add a chart when the user asks for one, \
 or when the result is a trend over time or a comparison across many categories \
@@ -209,7 +223,9 @@ class AgentAnswer:
         query_id: Unique id, also the log row's id.
         question: The question as asked.
         status: `answered`, `refused`, or `failed`.
-        explanation: Claude's answer, or the failure reason.
+        explanation: Claude's answer with exact values filled in, or the
+            failure reason.
+        explanation_template: The answer as Claude wrote it, with placeholders.
         result: Last successful query result.
         results: Every successful query result of the turn, in order.
         sql: SQL of that result, as run.
@@ -219,12 +235,14 @@ class AgentAnswer:
         model: Model id.
         latency_ms: Time from question to answer.
         error: Last error, if the question failed.
+        answer_rejections: Answers sent back to fix their placeholders.
     """
 
     query_id: str
     question: str
     status: str = "failed"
     explanation: str = ""
+    explanation_template: str = ""
     result: QueryResult | None = None
     results: list[QueryResult] = field(default_factory=list)
     sql: str | None = None
@@ -234,6 +252,7 @@ class AgentAnswer:
     model: str = ""
     latency_ms: int = 0
     error: str | None = None
+    answer_rejections: int = 0
 
     @property
     def bytes_billed(self) -> int:
@@ -386,17 +405,55 @@ class SqlAgent:
         }
         return {"content": json.dumps(payload, default=str)}
 
-    def _handle_tools(self, tool_uses: list[Any], answer: AgentAnswer) -> tuple[list, dict | None]:
+    @property
+    def max_model_calls(self) -> int:
+        """Model calls allowed per question.
+
+        One per SQL attempt, one to answer, one per answer sent back for a
+        fix, one reminder to use the answer tool, and one spare.
+        """
+        return self.settings.max_attempts + MAX_ANSWER_REJECTIONS + 3
+
+    def _check_answer(self, tool_input: dict[str, Any], answer: AgentAnswer) -> dict[str, Any]:
+        """Render the answer's placeholders, or say what to fix.
+
+        Returns:
+            The tool result content. On success, `answer` holds the rendered
+            explanation and is final; on failure, the content is an error for
+            the model, unless the rejection limit is reached, which fails
+            the question.
+        """
+        template = tool_input["explanation"]
+        try:
+            rendered = render(template, answer.result, answer.question)
+        except TemplateError as error:
+            if answer.answer_rejections < MAX_ANSWER_REJECTIONS:
+                answer.answer_rejections += 1
+                return {"content": f"Not recorded. {error}", "is_error": True}
+            answer.status, answer.error = "failed", f"Explanation could not be rendered: {error}"
+            answer.explanation_template = template
+            return {"content": "Not recorded.", "final": True}
+
+        answer.status = tool_input["status"]
+        answer.explanation, answer.explanation_template = rendered, template
+        chart = tool_input.get("chart") or {}
+        answer.chart = chart if chart.get("type", "none") != "none" else None
+        if answer.status == "answered" and answer.result is None:
+            answer.status = "failed"
+            answer.error = answer.error or "Answered without a successful query."
+        return {"content": "Recorded.", "final": True}
+
+    def _handle_tools(self, tool_uses: list[Any], answer: AgentAnswer) -> tuple[list, bool]:
         """Run every tool call of one response.
 
         Returns:
-            The tool_result blocks, and the answer tool's input if it was called.
+            The tool_result blocks, and whether the answer is final.
         """
-        results, final = [], None
+        results, final = [], False
         for block in tool_uses:
             if block.name == "answer":
-                final = block.input
-                content: dict[str, Any] = {"content": "Recorded."}
+                content: dict[str, Any] = self._check_answer(block.input, answer)
+                final = content.pop("final", False) or final
             elif block.name != "run_sql":
                 content = {"content": f"Unknown tool {block.name}.", "is_error": True}
             elif len(answer.attempts) >= self.settings.max_attempts:
@@ -433,8 +490,8 @@ class SqlAgent:
             ]
         messages.append({"role": "user", "content": question})
 
-        # Each attempt needs a call, plus one to answer and one spare.
-        for _ in range(self.settings.max_attempts + 2):
+        reminded = False
+        for _ in range(self.max_model_calls):
             response = self.messages.create(
                 model=self.settings.model,
                 max_tokens=MAX_TOKENS,
@@ -452,19 +509,22 @@ class SqlAgent:
             messages.append({"role": "assistant", "content": response.content})
             tool_uses = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
             if not tool_uses:
-                # Answered in text without the answer tool: keep the text.
-                answer.explanation = _text(response.content)
-                answer.status = "answered" if answer.result and answer.explanation else "failed"
-                break
-            results, final = self._handle_tools(tool_uses, answer)
-            if final is not None:
-                answer.status = final["status"]
-                answer.explanation = final["explanation"]
-                chart = final.get("chart") or {}
-                answer.chart = chart if chart.get("type", "none") != "none" else None
-                if answer.status == "answered" and answer.result is None:
+                # Text without the answer tool: its numbers are unchecked, so
+                # remind once, then fail rather than show them.
+                if reminded:
                     answer.status = "failed"
-                    answer.error = answer.error or "Answered without a successful query."
+                    answer.error = "Answered in text instead of with the answer tool."
+                    break
+                reminded = True
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": REMINDER,
+                    }
+                )
+                continue
+            results, final = self._handle_tools(tool_uses, answer)
+            if final:
                 break
             messages.append({"role": "user", "content": results})
         else:
