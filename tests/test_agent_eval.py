@@ -126,3 +126,51 @@ def test_chart_question_checks_type_and_series():
     assert scored.chart_ok is False
     assert "not in ['line']" in scored.reason
     assert "needs a series" in scored.reason
+
+
+# Interactive charts --------------------------------------------------------
+
+MONTHLY = result(
+    ["year_month", "state", "revenue"],
+    *[
+        [f"2018-0{m}", s, float(m * 100 + i)]
+        for m in range(1, 5)
+        for i, s in enumerate(["SP", "RJ"])
+    ],
+)
+
+
+def figure(kind, series):
+    from agent.chart import build_chart
+
+    spec = {"type": kind, "x": "year_month", "y": "revenue", "series": series, "title": "t"}
+    return build_chart(spec, MONTHLY).to_dict()
+
+
+@pytest.mark.parametrize("kind", ["line", "bar", "scatter"])
+@pytest.mark.parametrize("series", [None, "state"])
+def test_every_chart_has_tooltips_and_zoom(kind, series):
+    fig = figure(kind, series)
+    assert all(trace["hovertemplate"] for trace in fig["data"])
+    assert fig["layout"]["dragmode"] == "zoom"
+    assert not fig["layout"]["xaxis"].get("fixedrange")
+    assert not fig["layout"]["yaxis"].get("fixedrange")
+
+
+@pytest.mark.parametrize("kind", ["line", "bar", "scatter"])
+def test_series_get_a_clickable_legend(kind):
+    fig = figure(kind, "state")
+    assert fig["layout"]["showlegend"] is True
+    assert fig["layout"]["legend"]["itemclick"] == "toggle"
+    assert fig["layout"]["legend"]["itemdoubleclick"] == "toggleothers"
+    assert [trace["name"] for trace in fig["data"]] == ["SP", "RJ"]
+
+
+def test_line_charts_have_a_unified_hover():
+    assert figure("line", "state")["layout"]["hovermode"] == "x unified"
+
+
+def test_chart_plots_only_the_result_rows():
+    fig = figure("line", "state")
+    plotted = sorted(y for trace in fig["data"] for y in trace["y"])
+    assert plotted == sorted(row[2] for row in MONTHLY.rows)

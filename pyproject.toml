@@ -14,11 +14,11 @@ dependencies = [
 [dependency-groups]
 # agent: the text-to-SQL agent and its Streamlit UI (agent image: --no-dev --group agent).
 agent = [
-    "altair>=6.3.0",
     "anthropic>=1.13.0",
+    "chainlit>=2.12.0",
     "google-cloud-secret-manager>=2.31.0",
+    "plotly>=7.1.0",
     "sqlglot>=30.21.0",
-    "streamlit>=1.65.0",
 ]
 dbt = [
     "dbt-bigquery>=1.12.1",

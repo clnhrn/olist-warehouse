@@ -42,3 +42,8 @@ output "pipeline_workflow" {
   description = "Run the pipeline by hand: gcloud workflows run <name> --location=<region>."
   value       = local.pipeline_ready ? google_workflows_workflow.pipeline[0].name : null
 }
+
+output "agent_ui_service" {
+  description = "Open the private agent UI: gcloud run services proxy <name> --region=<region>."
+  value       = var.agent_image == null ? null : google_cloud_run_v2_service.agent_ui[0].name
+}

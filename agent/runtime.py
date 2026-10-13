@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent.config import AgentSettings, Target, agent_settings
-from agent.llm import AgentAnswer, AnthropicMessages, SqlAgent, load_api_key
+from agent.llm import AgentAnswer, AnthropicMessages, Progress, SqlAgent, load_api_key
 from agent.query_log import BigQueryQueryLog, LocalQueryLog, QueryLog, log_row, now, record
 from agent.schema import load_schema
 from agent.warehouse import BigQueryWarehouse, DuckDBWarehouse, gcp_credentials
@@ -34,6 +34,7 @@ class Runtime:
         question: str,
         history: list[tuple[str, str]] | None = None,
         session_id: str | None = None,
+        progress: Progress | None = None,
     ) -> AgentAnswer:
         """Answer a question and log it.
 
@@ -41,12 +42,13 @@ class Runtime:
             question: The user's question.
             history: Earlier (question, explanation) pairs, oldest first.
             session_id: Session id for the log.
+            progress: Called with each step as the agent works.
 
         Returns:
             The agent's answer.
         """
         asked_at = now()
-        answer = self.agent.ask(question, history=history)
+        answer = self.agent.ask(question, history=history, progress=progress)
         record(self.log, log_row(answer, self.settings.target, session_id, asked_at))
         return answer
 
