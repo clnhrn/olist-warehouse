@@ -4,7 +4,7 @@
 # checks in agent/guard.py.
 #
 # sa-agent-dev: local sessions (impersonation) and the CI eval job.
-# sa-agent-prod: only the Cloud Run UI service.
+# sa-agent-prod: only the Cloud Run UI service (agent-ui, below).
 
 locals {
   # Same naming as the datasets: prod uses the layer name, dev adds dev_.
@@ -122,4 +122,67 @@ resource "google_service_account_iam_member" "ci_pr_impersonates_agent_dev" {
   service_account_id = google_service_account.agent["dev"].name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = google_service_account.ci_pr.member
+}
+
+# Streamlit UI, private. Created only after the first agent image is pushed
+# (var.agent_image). After that, CI owns the image (gcloud run services
+# update --image), so Terraform ignores it, like the jobs.
+# No allUsers invoker: only the developer may call it, through
+#   gcloud run services proxy agent-ui --region us-central1
+resource "google_cloud_run_v2_service" "agent_ui" {
+  count = var.agent_image == null ? 0 : 1
+
+  name                = "agent-ui"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.agent["prod"].email
+    timeout         = "300s"
+    # Streamlit keeps one websocket per browser session; one small instance
+    # is plenty for a private demo, and zero when idle costs nothing.
+    max_instance_request_concurrency = 20
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+
+    containers {
+      image = var.agent_image
+
+      ports {
+        container_port = 8080
+      }
+
+      env {
+        name  = "OLIST_PROJECT_ID"
+        value = var.project_id
+      }
+
+      resources {
+        cpu_idle = true
+        limits = {
+          cpu    = "1"
+          memory = "1Gi"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [client, client_version, template[0].containers[0].image]
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "developer_invokes_agent_ui" {
+  count = var.agent_image == null ? 0 : 1
+
+  name     = google_cloud_run_v2_service.agent_ui[0].name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "user:${var.developer_email}"
 }

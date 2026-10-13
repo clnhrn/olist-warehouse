@@ -43,3 +43,9 @@ variable "dbt_image" {
   type        = string
   default     = null
 }
+
+variable "agent_image" {
+  description = "Full image URI for the agent UI Cloud Run service. Leave null until the image is pushed."
+  type        = string
+  default     = null
+}
