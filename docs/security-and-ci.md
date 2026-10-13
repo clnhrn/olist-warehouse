@@ -51,6 +51,8 @@ Terraform owns every job setting except the image. The jobs have `lifecycle { ig
 
 CI cannot authenticate before Workload Identity Federation exists, so the first apply of `ci.tf` ran locally. The repo secrets (`GCP_PROJECT_ID`, `TF_STATE_BUCKET`, `WIF_PROVIDER`, `CI_PR_SA`, `CI_DEPLOY_SA`, `DEVELOPER_EMAIL`, `ALERT_EMAIL`) were set with `gh secret set`, piped from `terraform output` so they never printed.
 
+Dependabot PRs cannot read Actions secrets, only Dependabot secrets, so their GCP jobs failed on empty values. `setup/dependabot-secrets.sh` copies the same seven secrets into the Dependabot store, looking the GCP values up with gcloud. Dependabot PRs then run full CI as `sa-ci-pr`, which any branch may use; `CI_DEPLOY_SA` is only an email, and `deploy-sa-denied` still checks that the token is refused.
+
 ## Caveats, stated plainly
 
 - The project owner's own credentials can still write to prod. Impersonation is a convention for local work; IAM is the real barrier for the jobs, CI, and the agent.
