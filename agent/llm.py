@@ -119,6 +119,9 @@ for a seller's current attributes.
 - Dimensions have an unknown member (key '-1', or -1 for dates); leave it in \
 counts unless the question excludes it.
 - If a query fails, read the error and fix the query.
+- Every number in your answer must appear in a query result. Compute derived \
+numbers (growth, shares, differences, ratios, unit conversions) in SQL, or leave \
+them out.
 
 Finish with the answer tool. Base the explanation only on rows you received. If \
 the data cannot answer the question, or the question asks to change data, call \
@@ -208,6 +211,7 @@ class AgentAnswer:
         status: `answered`, `refused`, or `failed`.
         explanation: Claude's answer, or the failure reason.
         result: Last successful query result.
+        results: Every successful query result of the turn, in order.
         sql: SQL of that result, as run.
         chart: Chart spec from the answer tool, or None.
         attempts: Every run_sql call, in order.
@@ -222,6 +226,7 @@ class AgentAnswer:
     status: str = "failed"
     explanation: str = ""
     result: QueryResult | None = None
+    results: list[QueryResult] = field(default_factory=list)
     sql: str | None = None
     chart: dict[str, Any] | None = None
     attempts: list[Attempt] = field(default_factory=list)
@@ -372,6 +377,7 @@ class SqlAgent:
             )
         )
         answer.result, answer.sql, answer.error = result, guarded.sql, None
+        answer.results.append(result)
         payload = {
             "columns": list(result.columns),
             "row_count": len(result.rows),
