@@ -12,8 +12,9 @@ runs:
         terraform_version: 1.16.5
         terraform_wrapper: false
 
-    # The jobs' images are owned by CI and ignored by Terraform, but the
-    # variables gate the jobs' creation, so pass the images they run now.
+    # The jobs' and the agent service's images are owned by CI and ignored by
+    # Terraform, but the variables gate their creation, so pass the images
+    # they run now.
     - name: Export Terraform variables
       shell: bash
       # Assigned first, so a failed describe stops the step instead of
@@ -29,11 +30,23 @@ runs:
           echo "::error::Could not read the jobs' current images"
           exit 1
         fi
+        # The agent UI service runs the image CI last deployed. Before the
+        # service exists, use the newest pushed agent image, so the deploy
+        # after the first push creates it. No image yet: no service.
+        agent_image=$(gcloud run services describe agent-ui --region=us-central1 \
+          --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true)
+        if [ -z "$agent_image" ]; then
+          agent_image=$(gcloud artifacts docker images list \
+            "us-central1-docker.pkg.dev/$GCP_PROJECT_ID/olist/agent" \
+            --sort-by=~UPDATE_TIME --limit=1 \
+            --format='value[separator="@"](package,version)' 2>/dev/null || true)
+        fi
         {
           echo "TF_VAR_project_id=$GCP_PROJECT_ID"
           echo "TF_VAR_developer_email=$DEVELOPER_EMAIL"
           echo "TF_VAR_ingestion_image=$ingestion_image"
           echo "TF_VAR_dbt_image=$dbt_image"
+          if [ -n "$agent_image" ]; then echo "TF_VAR_agent_image=$agent_image"; fi
           if [ -n "$ALERT_EMAIL" ]; then echo "TF_VAR_alert_email=$ALERT_EMAIL"; fi
         } >> "$GITHUB_ENV"
 

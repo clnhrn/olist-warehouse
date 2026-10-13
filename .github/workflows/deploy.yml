@@ -1,5 +1,6 @@
-# Deploy on merge to main: Terraform apply, build and push both images, point
-# the Cloud Run jobs at them, then run the dbt job on prod. Authenticates as
+# Deploy on merge to main: Terraform apply, build and push the images, point
+# the Cloud Run jobs and the agent UI service at them, then run the dbt job
+# on prod. Authenticates as
 # sa-ci-deploy, which only refs/heads/main can use. Merging the PR is the
 # approval for the apply.
 name: deploy
@@ -51,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [ingestion, dbt]
+        image: [ingestion, dbt, agent]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/mask-project-number
@@ -98,6 +99,16 @@ jobs:
             gcloud run jobs update "$job" --region="$REGION" \
               --image="$REGION-docker.pkg.dev/$GCP_PROJECT_ID/olist/$job:$GITHUB_SHA"
           done
+      # The first deploy only pushes the agent image; the next deploy's
+      # Terraform creates the service from it (see terraform-init).
+      - name: Point the agent UI at the new image
+        run: |
+          if gcloud run services describe agent-ui --region="$REGION" >/dev/null 2>&1; then
+            gcloud run services update agent-ui --region="$REGION" \
+              --image="$REGION-docker.pkg.dev/$GCP_PROJECT_ID/olist/agent:$GITHUB_SHA"
+          else
+            echo "agent-ui does not exist yet; run deploy again to create it."
+          fi
 
   prod-dbt:
     needs: deploy-jobs
