@@ -40,3 +40,11 @@ A budget only sends alerts. It does not cap spending.
 ```
 
 The token is saved to `~/.kaggle/access_token`, outside the repo. Never put it in a file in this repo.
+
+## 6. Dependabot secrets (after the first Terraform apply)
+
+```bash
+./setup/dependabot-secrets.sh [project-id]   # defaults to the active gcloud project
+```
+
+Dependabot PRs cannot read the repo's Actions secrets, so without this their GCP checks fail. The script looks up the project, state bucket, WIF provider, and CI service accounts with gcloud, asks for the two emails, shows all values, and sets them after you confirm. See [security-and-ci.md](../docs/security-and-ci.md#bootstrap).
