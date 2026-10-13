@@ -60,6 +60,7 @@ locals {
     "roles/monitoring.editor",
     "roles/resourcemanager.projectIamAdmin",
     "roles/run.admin",
+    "roles/secretmanager.admin",
     "roles/serviceusage.serviceUsageAdmin",
     "roles/storage.admin",
     "roles/workflows.admin",

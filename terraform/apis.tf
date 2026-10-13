@@ -9,6 +9,7 @@ locals {
     "iamcredentials.googleapis.com",
     "monitoring.googleapis.com",
     "run.googleapis.com",
+    "secretmanager.googleapis.com",
     "sts.googleapis.com",
     "workflowexecutions.googleapis.com",
     "workflows.googleapis.com",

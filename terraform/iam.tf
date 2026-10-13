@@ -3,6 +3,7 @@
 # sa-orchestrator-prod: the workflow and its schedule (orchestration.tf).
 # sa-dev: used by local sessions (impersonation). Writes the dev bucket and dev_* datasets only.
 # CI service accounts and Workload Identity Federation: ci.tf.
+# Agent service accounts (read-only gold): agent.tf.
 
 resource "google_service_account" "ingestion_prod" {
   account_id   = "sa-ingestion-prod"
