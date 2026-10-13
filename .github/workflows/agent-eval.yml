@@ -1,0 +1,76 @@
+# Text-to-SQL agent eval on dev BigQuery. Manual only: every run spends LLM
+# tokens (about $0.35) and BigQuery bytes, so it never runs on a push or PR.
+# Authenticates as sa-ci-pr, then the agent impersonates sa-agent-dev, so the
+# eval queries with exactly the agent's access (dev_gold read, one log table).
+# The Anthropic key comes from Secret Manager, read as sa-agent-dev.
+name: agent-eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: Question ids to run, space-separated (empty runs all).
+        required: false
+        default: ""
+      min_accuracy:
+        description: Fail the run below this accuracy (0 to 1).
+        required: false
+        default: "0.9"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-eval
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.10.2"
+  # Referenced here so the job masks it (see pr.yml).
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      OLIST_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/mask-project-number
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.CI_PR_SA }}
+      - run: uv sync --locked --no-dev --group agent
+      - name: Run the eval
+        env:
+          IDS: ${{ inputs.ids }}
+          MIN_ACCURACY: ${{ inputs.min_accuracy }}
+        run: |
+          args=(eval --target dev --min-accuracy "$MIN_ACCURACY")
+          if [ -n "$IDS" ]; then
+            read -ra ids <<< "$IDS"
+            args+=(--ids "${ids[@]}")
+          fi
+          uv run python -m agent "${args[@]}"
+      - name: Add the report to the run summary
+        if: always()
+        run: cat data/_agent/eval-dev-*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      # Reports hold questions, SQL, and scores; the SQL names datasets only,
+      # never the project id.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: agent-eval-report
+          path: data/_agent/eval-dev-*
+          if-no-files-found: warn
