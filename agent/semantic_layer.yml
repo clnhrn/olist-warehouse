@@ -1,0 +1,70 @@
+# Metric definitions the agent must use, so "revenue" means the same thing in
+# every answer. A small, hand-written stand-in for dbt's Semantic Layer
+# (MetricFlow), which is the production version of this idea.
+# Definitions follow docs/star-schema-design.md. Expressions are portable SQL
+# (BigQuery and DuckDB) over the table named in `table`.
+
+metrics:
+  - name: gmv
+    label: GMV
+    description: Gross merchandise value. Item prices over all order statuses, freight excluded.
+    table: fact_order_items
+    expression: SUM(price)
+
+  - name: revenue
+    label: Revenue
+    description: >
+      Item prices of orders that were not canceled or unavailable. Freight is
+      excluded, since it is passed through to carriers. Use this whenever the
+      user says revenue or sales, unless they ask for GMV.
+    table: fact_order_items
+    expression: SUM(price)
+    filter: order_status NOT IN ('canceled', 'unavailable')
+
+  - name: order_count
+    label: Orders
+    description: Number of orders, all statuses, including orders with no items.
+    table: fact_orders
+    expression: COUNT(*)
+
+  - name: average_order_value
+    label: Average order value
+    description: Revenue per order that has revenue. Same filter as revenue.
+    table: fact_order_items
+    expression: SUM(price) / COUNT(DISTINCT order_id)
+    filter: order_status NOT IN ('canceled', 'unavailable')
+
+  - name: average_delivery_days
+    label: Average delivery time (days)
+    description: Average days from purchase to delivery, over delivered orders.
+    table: fact_orders
+    expression: AVG(days_to_deliver)
+    filter: is_delivered AND days_to_deliver IS NOT NULL
+
+  - name: late_delivery_rate
+    label: Late delivery rate
+    description: >
+      Share of delivered orders that arrived on a later day than the estimate.
+      Orders without a delivery date are left out (is_late is null for them).
+      A fraction from 0 to 1.
+    table: fact_orders
+    expression: AVG(CASE WHEN is_late THEN 1.0 ELSE 0.0 END)
+    filter: is_delivered AND is_late IS NOT NULL
+
+  - name: cancellation_rate
+    label: Cancellation rate
+    description: Share of all orders whose status is canceled. A fraction from 0 to 1.
+    table: fact_orders
+    expression: AVG(CASE WHEN is_canceled THEN 1.0 ELSE 0.0 END)
+
+  - name: average_review_score
+    label: Average review score
+    description: Average review score, 1 to 5, over all reviews.
+    table: fact_reviews
+    expression: AVG(review_score)
+
+  - name: freight_share
+    label: Freight share
+    description: Freight as a share of item price plus freight, over all order items. A fraction from 0 to 1.
+    table: fact_order_items
+    expression: SUM(freight_value) / SUM(item_total)
