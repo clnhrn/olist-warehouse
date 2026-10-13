@@ -88,7 +88,7 @@ def _cte_names(root: exp.Expr) -> set[str]:
 
 
 def _check_and_rewrite_tables(
-    root: exp.Expr, known: frozenset[str], dataset: str, project: str | None
+    root: exp.Expr, known: frozenset[str], dataset: str
 ) -> frozenset[str]:
     ctes = _cte_names(root)
     used: set[str] = set()
@@ -106,9 +106,9 @@ def _check_and_rewrite_tables(
         if name not in known:
             raise UnsafeSqlError(f"Unknown table gold.{table.name}. Known: {sorted(known)}.")
         used.add(name)
+        # Dataset only, never the project: BigQuery resolves it from the
+        # client's project, and the SQL is logged and shown without it.
         table.set("db", exp.to_identifier(dataset))
-        if project:
-            table.set("catalog", exp.to_identifier(project))
     if not used:
         raise UnsafeSqlError("The query reads no gold table.")
     return frozenset(used)
@@ -128,7 +128,6 @@ def guard_sql(
     known_tables: frozenset[str],
     dialect: str,
     dataset: str,
-    project: str | None = None,
     row_limit: int,
 ) -> GuardedSql:
     """Check a query and rewrite it for the target warehouse.
@@ -138,7 +137,6 @@ def guard_sql(
         known_tables: Gold table names.
         dialect: sqlglot dialect, `bigquery` or `duckdb`.
         dataset: Real gold dataset or schema, such as `dev_gold`.
-        project: GCP project to qualify tables with (BigQuery only).
         row_limit: Maximum rows the query may return.
 
     Returns:
@@ -150,6 +148,6 @@ def guard_sql(
     """
     root = _parse_one(sql, dialect)
     _check_read_only(root)
-    tables = _check_and_rewrite_tables(root, known_tables, dataset, project)
+    tables = _check_and_rewrite_tables(root, known_tables, dataset)
     _apply_row_limit(root, row_limit)
     return GuardedSql(sql=root.sql(dialect=dialect), tables=tables)

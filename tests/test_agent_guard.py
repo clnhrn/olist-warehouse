@@ -11,7 +11,6 @@ def bq(sql: str, row_limit: int = 1000) -> str:
         known_tables=KNOWN,
         dialect="bigquery",
         dataset="dev_gold",
-        project="proj",
         row_limit=row_limit,
     ).sql
 
@@ -22,13 +21,13 @@ def duck(sql: str, row_limit: int = 1000) -> str:
     ).sql
 
 
-def test_rewrites_gold_to_target_dataset_and_project():
+def test_rewrites_gold_to_target_dataset_without_project():
     assert bq("SELECT COUNT(*) FROM gold.fact_orders") == (
-        "SELECT COUNT(*) FROM proj.dev_gold.fact_orders LIMIT 1000"
+        "SELECT COUNT(*) FROM dev_gold.fact_orders LIMIT 1000"
     )
 
 
-def test_duckdb_rewrite_has_no_project():
+def test_duckdb_rewrite():
     assert duck("SELECT 1 AS x FROM gold.fact_orders") == (
         "SELECT 1 AS x FROM dev_gold.fact_orders LIMIT 1000"
     )

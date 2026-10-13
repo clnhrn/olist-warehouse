@@ -41,6 +41,9 @@ LOG_COLUMNS: dict[str, str] = {
     "output_tokens": "INTEGER",
     "attempts": "INTEGER",
 }
+# Columns the table declares REQUIRED. A load job's schema must match the
+# table's modes exactly, or BigQuery rejects it.
+REQUIRED_COLUMNS = frozenset({"query_id", "asked_at", "target", "question", "status"})
 
 
 def log_row(
@@ -129,18 +132,33 @@ class BigQueryQueryLog:
         self.client = bigquery.Client(
             project=settings.project_id, location=settings.region, credentials=credentials
         )
-        self.table_id = f"{settings.project_id}.{settings.ops_dataset}.agent_queries"
+        self.project_id = settings.project_id or ""
+        self.ops_table = f"{settings.ops_dataset}.agent_queries"
+        self.table_id = f"{settings.project_id}.{self.ops_table}"
 
     def write(self, row: dict[str, Any]) -> None:
         """See `QueryLog.write`. The table must exist (Terraform creates it)."""
+        from google.api_core import exceptions
+
         bigquery = self._bigquery
+        schema = [
+            bigquery.SchemaField(name, kind, mode="REQUIRED" if name in REQUIRED_COLUMNS else None)
+            for name, kind in LOG_COLUMNS.items()
+        ]
         job_config = bigquery.LoadJobConfig(
-            schema=[bigquery.SchemaField(name, kind) for name, kind in LOG_COLUMNS.items()],
+            schema=schema,
             write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
             create_disposition=bigquery.CreateDisposition.CREATE_NEVER,
         )
-        self.client.load_table_from_json([row], self.table_id, job_config=job_config).result()
-        logger.info("Logged question %s to %s", row["query_id"], self.table_id)
+        try:
+            job = self.client.load_table_from_json([row], self.table_id, job_config=job_config)
+            job.result()
+        except exceptions.GoogleAPICallError as error:
+            # BigQuery's message names the project; keep it out of the logs.
+            details = getattr(error, "errors", None) or [{}]
+            message = details[0].get("message") or type(error).__name__
+            raise RuntimeError(message.replace(self.project_id, "<project>")) from None
+        logger.info("Logged question %s to %s", row["query_id"], self.ops_table)
 
 
 def record(log: QueryLog, row: dict[str, Any]) -> None:
@@ -154,8 +172,9 @@ def record(log: QueryLog, row: dict[str, Any]) -> None:
     """
     try:
         log.write(row)
-    except Exception:
-        logger.exception("Could not log question %s", row.get("query_id"))
+    except Exception as error:  # Logging must never lose the answer.
+        # No traceback: client tracebacks carry request URLs with the project id.
+        logger.error("Could not log question %s: %s", row.get("query_id"), error)
 
 
 def now() -> datetime:

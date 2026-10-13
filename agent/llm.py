@@ -353,7 +353,6 @@ class SqlAgent:
                 known_tables=self.schema.table_names,
                 dialect=self.settings.dialect,
                 dataset=self.settings.gold_dataset,
-                project=self.settings.project_id,
                 row_limit=self.settings.row_limit,
             )
             result = self.warehouse.run(guarded.sql)
