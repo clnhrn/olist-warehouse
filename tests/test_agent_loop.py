@@ -24,11 +24,9 @@ def response(*content, stop_reason="tool_use"):
     return SimpleNamespace(content=list(content), stop_reason=stop_reason, usage=usage)
 
 
-def answer_call(status="answered", chart=None):
+def answer_call(status="answered", chart=None, explanation="There are 3 orders."):
     chart = chart or {"type": "none", "x": None, "y": None, "series": None, "title": None}
-    return tool_use(
-        "answer", {"status": status, "explanation": "There are 3 orders.", "chart": chart}, "ta"
-    )
+    return tool_use("answer", {"status": status, "explanation": explanation, "chart": chart}, "ta")
 
 
 class FakeMessages:
@@ -129,13 +127,13 @@ def test_stops_running_sql_after_max_attempts(schema):
 
 def test_gives_up_when_the_model_never_answers(schema):
     loop = response(tool_use("run_sql", {"sql": "SELECT 1 AS a FROM gold.fact_orders"}))
-    messages = FakeMessages(*[loop] * 5)
-    warehouse = FakeWarehouse(*[RESULT] * 5)
-    answer = make_agent(schema, messages, warehouse).ask("?")
+    agent = make_agent(schema, FakeMessages(), FakeWarehouse(*[RESULT] * 3))
+    agent.messages = FakeMessages(*[loop] * agent.max_model_calls)
+    answer = agent.ask("?")
 
     assert answer.status == "failed"
     assert "Ran out of model calls" in answer.error
-    assert len(messages.requests) == SETTINGS.max_attempts + 2
+    assert len(agent.messages.requests) == agent.max_model_calls
 
 
 def test_model_refusal_fails_cleanly(schema):
@@ -220,3 +218,73 @@ def test_bigquery_errors_drop_the_url_and_project():
     fake_self = SimpleNamespace(settings=AgentSettings(target=Target.DEV, project_id="my-proj"))
     message = BigQueryWarehouse._error_message(fake_self, error)
     assert message == "Access Denied: Table <project>:gold.x"
+
+
+COUNT_SQL = {"sql": "SELECT COUNT(*) AS orders FROM gold.fact_orders"}
+BIG = QueryResult(columns=("orders", "late_rate"), rows=((99441, 0.0677309),))
+
+
+def test_placeholders_are_filled_with_exact_values(schema):
+    text = "There are {{r1.orders:int}} orders and {{r1.late_rate:pct}} arrived late."
+    messages = FakeMessages(
+        response(tool_use("run_sql", COUNT_SQL)), response(answer_call(explanation=text))
+    )
+    answer = make_agent(schema, messages, FakeWarehouse(BIG)).ask("How many orders?")
+
+    assert answer.status == "answered"
+    assert answer.explanation == "There are 99,441 orders and 6.77% arrived late."
+    assert answer.explanation_template == text
+
+
+def test_written_out_numbers_are_sent_back_for_a_fix(schema):
+    messages = FakeMessages(
+        response(tool_use("run_sql", COUNT_SQL)),
+        response(answer_call(explanation="There are about 99,400 orders.")),
+        response(answer_call(explanation="There are {{r1.orders:int}} orders.")),
+    )
+    answer = make_agent(schema, messages, FakeWarehouse(BIG)).ask("How many orders?")
+
+    assert answer.status == "answered"
+    assert answer.explanation == "There are 99,441 orders."
+    assert answer.answer_rejections == 1
+    rejection = messages.requests[2]["messages"][-1]["content"][0]
+    assert rejection["is_error"] is True
+    assert "99,400" in rejection["content"]
+
+
+def test_bad_placeholders_fail_after_the_rejection_limit(schema):
+    bad = response(answer_call(explanation="There are {{r9.orders:int}} orders."))
+    messages = FakeMessages(response(tool_use("run_sql", COUNT_SQL)), bad, bad, bad)
+    answer = make_agent(schema, messages, FakeWarehouse(BIG)).ask("How many orders?")
+
+    assert answer.status == "failed"
+    assert "row 9 does not exist" in answer.error
+    assert answer.answer_rejections == 2
+    assert len(messages.requests) == 4
+
+
+def test_text_without_the_answer_tool_gets_one_reminder(schema):
+    text = response(
+        SimpleNamespace(type="text", text="About 99,441 orders."), stop_reason="end_turn"
+    )
+    messages = FakeMessages(
+        response(tool_use("run_sql", COUNT_SQL)),
+        text,
+        response(answer_call(explanation="There are {{r1.orders:int}} orders.")),
+    )
+    answer = make_agent(schema, messages, FakeWarehouse(BIG)).ask("How many orders?")
+
+    assert answer.status == "answered"
+    assert answer.explanation == "There are 99,441 orders."
+    assert "answer tool" in messages.requests[2]["messages"][-1]["content"]
+
+
+def test_text_twice_fails_instead_of_showing_unchecked_numbers(schema):
+    text = response(
+        SimpleNamespace(type="text", text="About 99,441 orders."), stop_reason="end_turn"
+    )
+    messages = FakeMessages(response(tool_use("run_sql", COUNT_SQL)), text, text)
+    answer = make_agent(schema, messages, FakeWarehouse(BIG)).ask("How many orders?")
+
+    assert answer.status == "failed"
+    assert "instead of with the answer tool" in answer.error
