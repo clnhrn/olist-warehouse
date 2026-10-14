@@ -1,6 +1,6 @@
 """Wire the agent for a target: settings, schema, warehouse, LLM, and log.
 
-The CLI, the eval runner, and the Streamlit app all build the agent here, so
+The CLI, the eval runner, and the Chainlit app all build the agent here, so
 they run with the same account, limits, and logging.
 """
 

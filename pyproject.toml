@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-# agent: the text-to-SQL agent and its Streamlit UI (agent image: --no-dev --group agent).
+# agent: the text-to-SQL agent and its Chainlit UI (agent image: --no-dev --group agent).
 agent = [
     "anthropic>=1.13.0",
     "chainlit>=2.12.0",
