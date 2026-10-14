@@ -12,6 +12,7 @@ Who can write where, how GitHub Actions authenticates without keys, and what run
 | `sa-dev` | dev lake bucket, `dev_*` datasets | local work, by impersonation |
 | `sa-ci-pr` | `dev_*` datasets; reads the project and the Terraform state | pull request CI, any branch |
 | `sa-ci-deploy` | infrastructure: Terraform, images, jobs | deploy CI, `main` only |
+| `sa-agent-dev`, `sa-agent-prod` | only the `agent_queries` log table; reads its own gold dataset | the text-to-SQL agent ([agent.md](agent.md)) |
 
 Local sessions impersonate `sa-dev`, so a local run cannot touch prod: reading the prod bucket or `bronze` as `sa-dev` returns 403. Prod data is written only inside Cloud Run, by the job accounts.
 
