@@ -1,0 +1,11 @@
+/*
+ * Chainlit wraps each inline Plotly chart in a box with an inline
+ * `max-width: fit-content` (and a 600px class). After the window shrinks,
+ * the box fits the shrunken chart, so the chart, which fills 100% of the box,
+ * never grows back. Let the box take the message width instead; Plotly's
+ * resize handler then redraws the chart both ways.
+ */
+.inline-plotly-container {
+  width: 100%;
+  max-width: 100% !important;
+}
