@@ -68,6 +68,10 @@ jobs:
       # One plain linux/amd64 manifest (no index, no attestations), so each
       # push is one registry version for the keep-2 cleanup policy.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        # The build record artifact holds the registry URL, project id
+        # included, and artifacts are not masked like logs.
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: ${{ matrix.image }}/Dockerfile
