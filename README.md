@@ -96,3 +96,7 @@ docs/         design and topic docs
 | [agent.md](docs/agent.md) | The text-to-SQL agent: guardrails, semantic layer, evals, UI |
 | [operations.md](docs/operations.md) | Infrastructure, pipeline, how to run, rollout lessons, cost |
 | [implementation-plan.md](docs/implementation-plan.md), [progress.md](docs/progress.md) | The phased plan and its status |
+
+## License
+
+The code is under the [MIT License](LICENSE). The data is not in this repo, apart from a seed that translates two Olist category names. The [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) is by Olist and is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), so it may not be used commercially.
