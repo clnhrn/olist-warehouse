@@ -124,7 +124,7 @@ resource "google_service_account_iam_member" "ci_pr_impersonates_agent_dev" {
   member             = google_service_account.ci_pr.member
 }
 
-# Streamlit UI, private. Created only after the first agent image is pushed
+# Chainlit chat UI, private. Created only after the first agent image is pushed
 # (var.agent_image). After that, CI owns the image (gcloud run services
 # update --image), so Terraform ignores it, like the jobs.
 # No allUsers invoker: only the developer may call it, through
@@ -140,7 +140,7 @@ resource "google_cloud_run_v2_service" "agent_ui" {
   template {
     service_account = google_service_account.agent["prod"].email
     timeout         = "300s"
-    # Streamlit keeps one websocket per browser session; one small instance
+    # Chainlit keeps one websocket per browser session; one small instance
     # is plenty for a private demo, and zero when idle costs nothing.
     max_instance_request_concurrency = 20
 
