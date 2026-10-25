@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -787,7 +787,7 @@ pyopenssl = [
     { name = "cryptography" },
 ]
 requests = [
-    { name = "requests", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "requests" },
 ]
 
 [[package]]
@@ -808,19 +808,19 @@ name = "google-cloud-aiplatform"
 version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "certifi", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "docstring-parser", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-api-core", extra = ["grpc"], marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-auth", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-cloud-bigquery", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-cloud-resource-manager", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-cloud-storage", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-genai", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "packaging", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "proto-plus", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "protobuf", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "pydantic", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "typing-extensions", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "certifi" },
+    { name = "docstring-parser" },
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "google-cloud-bigquery" },
+    { name = "google-cloud-resource-manager" },
+    { name = "google-cloud-storage" },
+    { name = "google-genai" },
+    { name = "packaging" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7f/02/f8b5e99a8028ed3c295a109300e84e33aa91a32eb9d0a5d9da9c139abfcb/google_cloud_aiplatform-2.4.0.tar.gz", hash = "sha256:41ef8ef68cbda2b2107cb562105fdd57249b386d06be11113efe3986f146b292", size = 11357300, upload-time = "2026-10-07T00:32:24.073Z" }
 wheels = [
@@ -889,12 +889,12 @@ name = "google-cloud-resource-manager"
 version = "1.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", extra = ["grpc"], marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-auth", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "grpc-google-iam-v1", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "grpcio", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "proto-plus", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "protobuf", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f4/1f/a2f23d2c2c0a34dab2e689d11ac4f20d77ac51c4832953beece2bc39e48a/google_cloud_resource_manager-1.19.0.tar.gz", hash = "sha256:68e5d28ed9091ab1adf04a77876b09d553e97a440fba78163f6ce2b5fe5f2558", size = 446420, upload-time = "2026-10-01T18:17:54.309Z" }
 wheels = [
@@ -953,16 +953,16 @@ name = "google-genai"
 version = "2.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "anyio", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "distro", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "google-auth", extra = ["requests"], marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "httpx", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "pydantic", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "requests", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "sniffio", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "tenacity", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "typing-extensions", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "websockets", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "google-auth", extra = ["requests"] },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "sniffio" },
+    { name = "tenacity" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/21/2b/977616ef350e51d3d263eb43be23a91be793544cd937b51c0fac313be233/google_genai-2.29.0.tar.gz", hash = "sha256:124d3eef9ff6b9e4ea548f95ff5b7721683e7990c0a936b006d9e2ab61ea897d", size = 706902, upload-time = "2026-10-07T22:22:57.153Z" }
 wheels = [
@@ -1074,8 +1074,8 @@ name = "httpcore2"
 version = "2.13.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "sys_platform != 'emscripten'" },
-    { name = "truststore", marker = "sys_platform != 'emscripten'" },
+    { name = "h11" },
+    { name = "truststore" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cb/f3/1db7aa2bc2524062192bb0e0323969492d1883152a232fe36eea65f4e35c/httpcore2-2.13.1.tar.gz", hash = "sha256:e0aa977abe17e69a3b820a24542a6fa88702676d83880b8d194dcd18408e5103", size = 68071, upload-time = "2026-09-23T07:47:22.372Z" }
 wheels = [
@@ -3410,7 +3410,7 @@ wheels = [
 
 [[package]]
 name = "virtualenv"
-version = "21.14.5"
+version = "21.14.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distlib" },
@@ -3419,9 +3419,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-discovery" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/f9/f323b3b6058cff3853b31cf6a49c0425ed797bf9611572ec10d065e08bac/virtualenv-21.14.5.tar.gz", hash = "sha256:c4cb6c13e46b57225a999c7e22a09b163393878facc7ac4c059a57f46faa1647", size = 5467127, upload-time = "2026-10-02T17:42:25.613Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/aa/bff50daee0488e16d611258a9b6c5a1d0c9e128f8ca424e9f4e1c0444ef2/virtualenv-21.14.13.tar.gz", hash = "sha256:de5307ba4b9a0001d9c8ea02832d38f63ca432880f416c1bface61c4323fd905", size = 5570301, upload-time = "2026-10-22T20:10:16.952Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/93/084f10ebbecdedf7902ed68fbecc903f0e9c5742155bfffb05eccbc071da/virtualenv-21.14.5-py3-none-any.whl", hash = "sha256:b0651e0174982bba17cc6f0aaa2ef496730cb85a3f35eb5d1119d1c904f7d1da", size = 5487482, upload-time = "2026-10-02T17:42:23.38Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/a9/c10d8a44a29fb94a18b43fdf11f38caca53ae7c9406f11a72b1cb8f624f1/virtualenv-21.14.13-py3-none-any.whl", hash = "sha256:5fbb04138a4861580b78ba9110d529a26bc48fcc93c8ec36bc0202eeed96a788", size = 5557094, upload-time = "2026-10-22T20:10:15.096Z" },
 ]
 
 [[package]]
